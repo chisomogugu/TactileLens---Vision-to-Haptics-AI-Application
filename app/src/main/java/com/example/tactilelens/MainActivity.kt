@@ -92,9 +92,11 @@ import com.example.tactilelens.ui.theme.VividBlue
 import com.example.tactilelens.ui.theme.TestProjectTheme
 import java.io.File
 import androidx.camera.core.Preview as CameraXPreview
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
