@@ -15,8 +15,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -168,6 +171,8 @@ fun ResultsScreen(
                 }
 
                 // Stats Section Container (Box 2)
+                val pagerState = rememberPagerState(pageCount = { 2 })
+                
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -195,8 +200,8 @@ fun ResultsScreen(
                         )
                     }
 
-                    // Stats Panel Box (The Blue Boundary)
-                    Column(
+                    // Swipable Content Box (The Blue Boundary)
+                    Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .dashedBorder(
@@ -204,13 +209,46 @@ fun ResultsScreen(
                                 width = 2.dp,
                                 radius = 24.dp
                             )
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.SpaceEvenly
+                            .padding(12.dp)
                     ) {
-                        StatRow("ROUGHNESS", mockData.roughness)
-                        StatRow("FLATBUMPY", mockData.flatBumpy)
-                        StatRow("FRICTION", mockData.friction)
-                        StatRow("HARDNESS", mockData.hardness)
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize()
+                        ) { page ->
+                            if (page == 0) {
+                                Column(
+                                    modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                                    verticalArrangement = Arrangement.SpaceEvenly
+                                ) {
+                                    StatRow("ROUGHNESS", mockData.roughness)
+                                    StatRow("FLATBUMPY", mockData.flatBumpy)
+                                    StatRow("FRICTION", mockData.friction)
+                                    StatRow("HARDNESS", mockData.hardness)
+                                }
+                            } else {
+                                StatGraphView(mockData)
+                            }
+                        }
+
+                        // Page Indicators (Dots)
+                        Row(
+                            Modifier
+                                .height(8.dp)
+                                .fillMaxWidth()
+                                .align(Alignment.BottomCenter),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            repeat(2) { iteration ->
+                                val color = if (pagerState.currentPage == iteration) GlowCyan else Color.White.copy(alpha = 0.2f)
+                                Box(
+                                    modifier = Modifier
+                                        .padding(2.dp)
+                                        .clip(CircleShape)
+                                        .background(color)
+                                        .size(6.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -245,15 +283,52 @@ fun ResultsScreen(
                     }
             ) {
                 InteractiveGridZone()
-
-                Text(
-                    text = "DOTTED GRID TOUCH ZONE",
-                    color = Color.White.copy(alpha = 0.3f),
-                    style = MaterialTheme.typography.titleMedium,
-                    letterSpacing = 2.sp,
-                    modifier = Modifier.align(Alignment.Center)
-                )
             }
+        }
+    }
+}
+
+@Composable
+fun StatGraphView(data: HapticData) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        GraphBar("ROUGHNESS", data.roughness)
+        GraphBar("FLATBUMPY", data.flatBumpy)
+        GraphBar("FRICTION", data.friction)
+        GraphBar("HARDNESS", data.hardness)
+    }
+}
+
+@Composable
+fun GraphBar(label: String, value: Float) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            color = Color.White.copy(alpha = 0.5f),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            fontSize = 9.sp
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(Color.White.copy(alpha = 0.05f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(value.coerceIn(0.01f, 1f))
+                    .fillMaxHeight()
+                    .background(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(VividBlue, GlowCyan)
+                        )
+                    )
+            )
         }
     }
 }
