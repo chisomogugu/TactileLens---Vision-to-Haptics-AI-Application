@@ -18,9 +18,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -62,6 +65,7 @@ import com.example.tactilelens.ui.theme.VividBlue
 
 data class HapticData(
     val name: String = "TEXTURED FABRIC",
+    val latency: String = "42ms",
     val roughness: Float = 0.1f,
     val flatBumpy: Float = 0.2f,
     val friction: Float = 0.1f,
@@ -124,13 +128,15 @@ fun ResultsScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
+                    .padding(horizontal = 24.dp)
+                    .padding(top = 24.dp), // Add top padding to clear the floating latency label
                 horizontalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                // Captured Image
+                // Captured Image (Box 1)
                 Box(
                     modifier = Modifier
-                        .size(140.dp)
+                        .weight(1f)
+                        .height(160.dp)
                         .clip(RoundedCornerShape(24.dp))
                         .background(Color.White.copy(alpha = 0.05f))
                         .drawBehind {
@@ -161,23 +167,51 @@ fun ResultsScreen(
                     }
                 }
 
-                // Stats Panel
-                Column(
+                // Stats Section Container (Box 2)
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(140.dp)
-                        .dashedBorder(
-                            color = VividBlue.copy(alpha = 0.6f),
-                            width = 2.dp,
-                            radius = 24.dp
-                        )
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.SpaceEvenly
+                        .height(160.dp)
                 ) {
-                    StatRow("ROUGHNESS", mockData.roughness)
-                    StatRow("FLATBUMPY", mockData.flatBumpy)
-                    StatRow("FRICTION", mockData.friction)
-                    StatRow("HARDNESS", mockData.hardness)
+                    // Floating Latency Indicator (STRICTLY OUTSIDE AND ABOVE)
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(y = (-24).dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .background(GlowCyan, CircleShape)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "LATENCY: ${mockData.latency}",
+                            color = GlowCyan.copy(alpha = 0.9f),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                    }
+
+                    // Stats Panel Box (The Blue Boundary)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .dashedBorder(
+                                color = VividBlue.copy(alpha = 0.6f),
+                                width = 2.dp,
+                                radius = 24.dp
+                            )
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        StatRow("ROUGHNESS", mockData.roughness)
+                        StatRow("FLATBUMPY", mockData.flatBumpy)
+                        StatRow("FRICTION", mockData.friction)
+                        StatRow("HARDNESS", mockData.hardness)
+                    }
                 }
             }
 
@@ -225,7 +259,7 @@ fun ResultsScreen(
 }
 
 @Composable
-fun StatRow(label: String, value: Float) {
+fun StatRow(label: String, value: Any) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween
