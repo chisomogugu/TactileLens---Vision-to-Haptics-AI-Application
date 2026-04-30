@@ -20,7 +20,7 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -70,13 +70,16 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -137,7 +140,7 @@ fun ScannerApp() {
 
     LaunchedEffect(imageUri) {
         if (imageUri != null && currentScreen == AppScreen.Scanner) {
-            kotlinx.coroutines.delay(5000)
+            kotlinx.coroutines.delay(7000)
             currentScreen = AppScreen.Results
         }
     }
@@ -249,16 +252,36 @@ private fun ScannerScreen(
                     if (imageUri != null) {
                         val context = LocalContext.current
                         val imageBitmap by rememberLoadedBitmap(context, imageUri)
+                        
+                        // Load mock data images from assets
+                        val thermalBitmap by produceState<ImageBitmap?>(initialValue = null) {
+                            value = loadBitmapFromAssets(context, "thermal_map.png")?.asImageBitmap()
+                        }
+                        val depthBitmap by produceState<ImageBitmap?>(initialValue = null) {
+                            value = loadBitmapFromAssets(context, "depth_wireframe.png")?.asImageBitmap()
+                        }
+
+                        val tBitmap = thermalBitmap
+                        val dBitmap = depthBitmap
 
                         if (imageBitmap != null) {
-                            Image(
-                                bitmap = imageBitmap!!,
-                                contentDescription = "Captured image",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
+                            if (tBitmap != null && dBitmap != null) {
+                                ScannerRevealEffect(
+                                    originalBitmap = imageBitmap!!,
+                                    thermalBitmap = tBitmap,
+                                    depthBitmap = dBitmap,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Image(
+                                    bitmap = imageBitmap!!,
+                                    contentDescription = "Captured image",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                                ScannerOverlay(active = true)
+                            }
                         }
-                        ScannerOverlay(active = true)
 
                         // Red X Button
                         IconButton(
@@ -361,13 +384,106 @@ fun CameraPreview(
 }
 
 @Composable
+fun ScannerRevealEffect(
+    originalBitmap: ImageBitmap,
+    thermalBitmap: ImageBitmap,
+    depthBitmap: ImageBitmap,
+    modifier: Modifier = Modifier
+) {
+    // Stage 0: Original -> Thermal (downward, 0..1)
+    // Stage 1: Thermal -> Depth (upward, 1..0)
+    // Stage 2: Done (holds Depth)
+    var stage by remember { mutableStateOf(0) }
+    var rawProgress by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        // Stage 0: scan DOWN (3.5s) -> reveals Thermal over Original
+        val steps = 70
+        val stepDuration = 3500L / steps
+        for (i in 0..steps) {
+            rawProgress = i / steps.toFloat()
+            kotlinx.coroutines.delay(stepDuration)
+        }
+        stage = 1
+        // Stage 1: scan UP (3.5s) -> reveals Depth over Thermal
+        for (i in steps downTo 0) {
+            rawProgress = i / steps.toFloat()
+            kotlinx.coroutines.delay(stepDuration)
+        }
+        stage = 2
+    }
+
+    Canvas(modifier = modifier) {
+        val width = size.width
+        val height = size.height
+
+        when (stage) {
+            0 -> {
+                // Base: Original. Reveal: Thermal from top down.
+                drawImage(originalBitmap, dstSize = IntSize(width.toInt(), height.toInt()))
+                val lineY = height * rawProgress
+                clipRect(top = 0f, bottom = lineY) {
+                    drawImage(thermalBitmap, dstSize = IntSize(width.toInt(), height.toInt()))
+                }
+                // Scanner line
+                drawLine(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, VividBlue, Color.Transparent),
+                        startY = lineY - 25f, endY = lineY + 25f
+                    ),
+                    start = Offset(0f, lineY), end = Offset(width, lineY), strokeWidth = 6f
+                )
+                drawLine(
+                    color = Color.White.copy(alpha = 0.8f),
+                    start = Offset(0f, lineY), end = Offset(width, lineY), strokeWidth = 2f
+                )
+            }
+            1 -> {
+                // Base: Thermal. Reveal: Depth from bottom up.
+                drawImage(thermalBitmap, dstSize = IntSize(width.toInt(), height.toInt()))
+                val lineY = height * rawProgress
+                clipRect(top = lineY, bottom = height) {
+                    drawImage(depthBitmap, dstSize = IntSize(width.toInt(), height.toInt()))
+                }
+                // Scanner line
+                drawLine(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, VividBlue, Color.Transparent),
+                        startY = lineY - 25f, endY = lineY + 25f
+                    ),
+                    start = Offset(0f, lineY), end = Offset(width, lineY), strokeWidth = 6f
+                )
+                drawLine(
+                    color = Color.White.copy(alpha = 0.8f),
+                    start = Offset(0f, lineY), end = Offset(width, lineY), strokeWidth = 2f
+                )
+            }
+            else -> {
+                // Done: hold on Depth
+                drawImage(depthBitmap, dstSize = IntSize(width.toInt(), height.toInt()))
+            }
+        }
+    }
+}
+
+private fun loadBitmapFromAssets(context: Context, fileName: String): Bitmap? {
+    return try {
+        context.assets.open(fileName).use { inputStream ->
+            android.graphics.BitmapFactory.decodeStream(inputStream)
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+@Composable
 private fun ScannerOverlay(active: Boolean) {
     val transition = rememberInfiniteTransition(label = "scanner")
     val sweep by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2400, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = 2400, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "scannerSweep"
