@@ -42,7 +42,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -107,9 +107,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+enum class AppScreen { Scanner, Results }
+
 @Composable
 fun ScannerApp() {
     val context = LocalContext.current
+    var currentScreen by rememberSaveable { mutableStateOf(AppScreen.Scanner) }
     var imageUri by rememberSaveable { mutableStateOf<Uri?>(null) }
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -129,6 +132,13 @@ fun ScannerApp() {
     LaunchedEffect(Unit) {
         if (!hasCameraPermission) {
             permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    LaunchedEffect(imageUri) {
+        if (imageUri != null && currentScreen == AppScreen.Scanner) {
+            kotlinx.coroutines.delay(5000)
+            currentScreen = AppScreen.Results
         }
     }
 
@@ -153,13 +163,23 @@ fun ScannerApp() {
         )
     }
 
-    ScannerScreen(
-        imageUri = imageUri,
-        hasCameraPermission = hasCameraPermission,
-        imageCapture = imageCapture,
-        onCapture = { takePicture() },
-        onClearImage = { imageUri = null }
-    )
+    if (currentScreen == AppScreen.Scanner) {
+        ScannerScreen(
+            imageUri = imageUri,
+            hasCameraPermission = hasCameraPermission,
+            imageCapture = imageCapture,
+            onCapture = { takePicture() },
+            onClearImage = { imageUri = null }
+        )
+    } else {
+        com.example.tactilelens.ui.ResultsScreen(
+            imageUri = imageUri,
+            onBack = { 
+                currentScreen = AppScreen.Scanner
+                imageUri = null
+            }
+        )
+    }
 }
 
 @Composable
@@ -189,7 +209,7 @@ private fun ScannerScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 20.dp)
-                .statusBarsPadding()
+                .systemBarsPadding()
                 .padding(bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
