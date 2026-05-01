@@ -24,10 +24,15 @@ class MockAnalysisClient(@Suppress("UNUSED_PARAMETER") context: Context) : Analy
     private var counter: Int = 0
 
     override suspend fun analyze(uri: Uri): AnalysisResult {
-        delay(1500)
+        delay(MOCK_LATENCY_MS)
         val material = MATERIAL_CYCLE[counter % MATERIAL_CYCLE.size]
         counter++
-        return resultFor(material)
+        val base = resultFor(material)
+        return base.copy(
+            backendLabel = "MOCK",
+            inferenceLatencyMs = MOCK_LATENCY_MS,
+            primitiveWeights = PrimitiveMapper.map(base.axes),
+        )
     }
 
     /** Build an [AnalysisResult] for a known material with sensible axis defaults. */
@@ -62,6 +67,12 @@ class MockAnalysisClient(@Suppress("UNUSED_PARAMETER") context: Context) : Analy
             confidence = 0.85f,
             label = "knitted",
         )
+        Material.GLASS -> AnalysisResult(
+            axes = TextureAxes(roughness = 0.05f, flatBumpy = 0.05f, friction = 0.08f, hardness = 0.96f),
+            material = Material.GLASS,
+            confidence = 0.92f,
+            label = "glass",
+        )
         null -> AnalysisResult(
             axes = TextureAxes.Neutral,
             material = null,
@@ -71,12 +82,14 @@ class MockAnalysisClient(@Suppress("UNUSED_PARAMETER") context: Context) : Analy
     }
 
     private companion object {
+        private const val MOCK_LATENCY_MS: Long = 1500L
         private val MATERIAL_CYCLE = listOf(
             Material.SAND,
             Material.WOOD,
             Material.PAPER,
             Material.ROCKS,
             Material.FABRIC,
+            Material.GLASS,
         )
     }
 }

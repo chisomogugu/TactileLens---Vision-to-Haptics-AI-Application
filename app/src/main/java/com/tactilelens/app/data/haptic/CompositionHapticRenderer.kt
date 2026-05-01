@@ -69,6 +69,7 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
             Material.ROCKS -> rocksRecipe(velocityScale)
             Material.SAND -> sandRecipe(velocityScale)
             Material.FABRIC -> fabricRecipe(velocityScale)
+            Material.GLASS -> proceduralRecipe(axes, velocityScale)  // Phase 6: glassRecipe()
             null -> proceduralRecipe(axes, velocityScale)
         }
         vibrator.vibrate(effect)
@@ -133,6 +134,7 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
             Material.FABRIC -> fabricResistanceBurst(velFactor)
             Material.SAND -> sandResistanceBurst(velFactor)
             Material.ROCKS -> rocksResistanceBurst(velFactor)
+            Material.GLASS -> proceduralSwipeEffect(axes, velFactor)  // Phase 6: PRIMITIVE_QUICK_FALL
             null -> proceduralSwipeEffect(axes, velFactor)
         }
     }

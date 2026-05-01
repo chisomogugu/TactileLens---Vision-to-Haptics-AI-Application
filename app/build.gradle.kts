@@ -37,6 +37,13 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // .tflite files must remain uncompressed in the APK so LiteRT can
+    // mmap them directly. Compressed assets force a full RAM load and
+    // break the QNN delegate's zero-copy path.
+    androidResources {
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
@@ -63,4 +70,9 @@ dependencies {
     implementation(libs.androidx.camera.extensions)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.kotlinx.coroutines.android)
+
+    // LiteRT runtime + Qualcomm QNN delegate (Hexagon NPU). Locked decision Q3-A.
+    implementation(libs.litert)
+    implementation(libs.qnn.runtime)
+    implementation(libs.qnn.litert.delegate)
 }

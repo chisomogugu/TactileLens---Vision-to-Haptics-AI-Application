@@ -197,6 +197,13 @@ fun ResultsScreen(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
+                    BackendLatencyPill(
+                        backendLabel = analysisResult.backendLabel,
+                        latencyMs = analysisResult.inferenceLatencyMs,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp),
+                    )
                 }
 
                 // Stats Section Container (Box 2)
@@ -447,6 +454,46 @@ private fun StatRow(label: String, value: String) {
             color = Color.White,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+/**
+ * Persistent backend + latency pill (locked decision Q8). Reads the
+ * delegate that ran inference and the wall-clock latency from the
+ * `AnalysisResult`. Green dot = NPU (the path we want demoed); amber
+ * for any fallback (GPU, CPU, MOCK).
+ */
+@Composable
+private fun BackendLatencyPill(
+    backendLabel: String,
+    latencyMs: Long,
+    modifier: Modifier = Modifier,
+) {
+    val isNpu = backendLabel == "NPU"
+    Row(
+        modifier = modifier
+            .background(
+                color = Color.Black.copy(alpha = 0.55f),
+                shape = RoundedCornerShape(50),
+            )
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .background(
+                    color = if (isNpu) GlowCyan else Color(0xFFE6A23C),
+                    shape = CircleShape,
+                ),
+        )
+        Text(
+            text = "$backendLabel · ${latencyMs} ms",
+            color = Color.White,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
         )
     }
 }
