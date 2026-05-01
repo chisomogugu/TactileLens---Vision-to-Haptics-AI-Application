@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.tactilelens"
+    namespace = "com.tactilelens.app"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -12,7 +12,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.tactilelens"
+        applicationId = "com.tactilelens.app"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
@@ -49,6 +49,7 @@ android {
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
+    implementation("androidx.compose.material:material-icons-core")
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
@@ -62,7 +63,6 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
-    
     // LiteRT Dependencies
     implementation(libs.litert)
     implementation(libs.litert.support)
@@ -70,7 +70,10 @@ dependencies {
     
     // CameraX Dependencies
     implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
-    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.extensions)
+    implementation(libs.androidx.core.splashscreen)
+    implementation(libs.kotlinx.coroutines.android)
 }

@@ -1,0 +1,470 @@
+================================================================================
+TEXTURE-TO-HAPTICS: PROJECT SUMMARY (v4)
+================================================================================
+
+TEAM PIPELINE OWNERSHIP
+------------------------
+Stage 0 — Background Removal / Object Segmentation  [NOT ML TEAM]
+  Handled by: teammate (separate responsibility)
+  Summary: Input image → U²-Net-small or equivalent → cropped texture region
+  Suggested: rembg (server-side Python, wraps U2Net, trivial to call) for
+  hackathon; ML Kit Subject Segmentation if it must run on-device in Android.
+  Output handed to ML team: cropped/masked image of the surface or object.
+
+Stages 1–3 — Perceptual Feature Extraction + Primitive Mapping  [ML TEAM]
+  Handled by: ML team (this doc)
+  Input: cropped texture image from Stage 0
+  Output: 8 haptic primitive weights → Android Vibrator API
+
+NOTE: The rest of this document covers Stages 1–3 only.
+
+================================================================================
+
+GOAL
+----
+Build a machine learning system that takes an image of a surface or object and
+predicts how that surface would feel — then maps those perceptual dimensions to
+Android haptic primitive weights for use in haptic feedback systems.
+
+The end output is a set of weights over Android's haptic primitives that a
+device can actually play back, giving a user a realistic haptic impression of
+a texture they are looking at.
+
+
+================================================================================
+WHAT THE MODEL IS TRYING TO ACHIEVE
+================================================================================
+
+Given an input image of a texture or object surface, the system outputs a
+weighted blend of Android haptic primitives:
+
+  PRIMITIVE_TICK        — short, sharp, high-frequency tap
+  PRIMITIVE_LOW_TICK    — softer, lower-intensity tick
+  PRIMITIVE_CLICK       — discrete, stiff contact feel
+  PRIMITIVE_THUD        — heavy, low-frequency, compliant impact
+  PRIMITIVE_SLOW_RISE   — gradual build-up, soft deformation
+  PRIMITIVE_QUICK_RISE  — fast onset, low compliance
+  PRIMITIVE_QUICK_FALL  — slippery release, low friction
+  PRIMITIVE_SPIN        — periodic/repeating texture feel [see note below]
+
+These weights sum to 1 and represent a mixture of primitives that best
+approximates the haptic character of the surface in the image, as perceived
+through phone vibration.
+
+NOTE on PRIMITIVE_SPIN:
+  PRIMITIVE_SPIN cannot be reliably inferred from a single still image —
+  periodicity direction and rate are dynamic properties that require motion
+  or multi-view input. For v1, PRIMITIVE_SPIN is assigned a fixed reference
+  value (0.05) rather than being learned. To be revisited if the input
+  modality is expanded to video in a future version.
+
+Applications:
+  - Haptic feedback in AR/VR when interacting with virtual surfaces
+  - Assistive perception (letting visually impaired users "feel" objects)
+  - Robotics grasp planning
+  - Texture-aware mobile UI interactions
+
+
+================================================================================
+PIPELINE
+================================================================================
+
+Stage 0 — Background Removal / Object Segmentation
+  Input image → U²-Net-small (lightweight salient object detection)
+  Removes background to isolate the texture region of interest.
+  Use U²-Net-small (~4MB) rather than full U²-Net (~176MB) to keep
+  mobile inference latency acceptable. Benchmark on mid-range Android
+  early. If segmentation quality is sufficient, a lighter alternative
+  like MobileNetSSD bounding box crop can be used for simpler scenes.
+
+Stage 1 — Visual Feature Extraction
+  Cropped texture region → Pretrained vision encoder (DINOv2 or ConvNeXt)
+  The encoder extracts rich texture-relevant visual features.
+
+Stage 2 — Perceptual Dimension Regression
+  Encoder features → MLP regression head
+  Outputs 5 continuous perceptual dimensions (normalized 0–1),
+  defined as vibration-perceivable axes humans can reliably rate
+  through haptic playback on a phone screen:
+
+    - Rough / Smooth   (texture intensity; maps to vibration density)
+    - Fine / Coarse    (feature scale; micro vs macro texture pattern)
+    - Sharp / Dull     (onset character; clicking vs thudding feel)
+    - Fast / Slow      (temporal dynamics; speed of rise and fall)
+    - Strong / Weak    (overall intensity; amplitude of vibration)
+
+  These dimensions are chosen because they are all discriminable through
+  phone vibration alone — no physical pressing or surface contact required.
+  Training uses masked loss to handle datasets with missing labels.
+  Dataset labels are mapped to these 5 axes via empirical calibration
+  (not assumed mapping) — see DATASET CALIBRATION section below.
+
+Stage 3 — Haptic Primitive Mapping
+  5 perceptual dimensions → Mapping MLP → 7 learned weights + 1 fixed
+
+  PRIMITIVE_SPIN is set to a fixed reference value (0.05) and excluded
+  from the learned output. The remaining 7 weights are produced by a
+  small MLP trained on perceptual study labels (Option A + C).
+
+  This stage is kept separate from the vision backbone deliberately,
+  so the haptic mapping can be iterated without retraining the encoder.
+
+  Mapping rationale (perceptual dimension → primitive):
+    PRIMITIVE_TICK        ← Rough + Sharp + Fast + Strong
+    PRIMITIVE_LOW_TICK    ← Rough + Sharp + Fast + Weak
+    PRIMITIVE_CLICK       ← Fine + Sharp + Fast + Strong
+    PRIMITIVE_THUD        ← Coarse + Dull + Slow + Strong
+    PRIMITIVE_SLOW_RISE   ← Smooth + Dull + Slow
+    PRIMITIVE_QUICK_RISE  ← Fine + Sharp + Fast (rising character)
+    PRIMITIVE_QUICK_FALL  ← Smooth + Dull + Fast (falling/releasing)
+    PRIMITIVE_SPIN        ← Fixed at 0.05 (not learned in v1)
+
+Full pipeline summary:
+  Image
+    → U²-Net-small (background removal)
+    → DINOv2 / ConvNeXt encoder
+    → MLP regression head
+    → [rough/smooth, fine/coarse, sharp/dull, fast/slow, strong/weak]
+    → Mapping MLP (trained on perceptual study labels)
+    → [7 learned primitive weights + SPIN=0.05] via softmax
+    → Android Vibrator API
+
+
+================================================================================
+DATASET CALIBRATION (replaces assumed mapping)
+================================================================================
+
+PROBLEM BEING SOLVED
+  In v3 the mapping from instrument-measured physical quantities to the 5
+  perceptual dimensions was an assumption (e.g. "Ra roughness maps to
+  rough/smooth"). Whether Ra roughness actually predicts rough/smooth
+  perception through vibration was untested. This section replaces that
+  assumption with an empirical calibration step.
+
+CALIBRATION PROCEDURE
+  1. Select 20-30 surfaces that exist in the Purri dataset (richest
+     instrument labels: Ra roughness, compliance, friction, adhesion).
+
+  2. Generate haptic playbacks for each surface using the initial
+     rule-based mapping as a starting point.
+
+  3. Include these 20-30 surfaces as a dedicated calibration subset
+     within the perceptual study (see PERCEPTUAL STUDY section).
+     Participants rate these surfaces on all 5 dimensions via vibration.
+
+  4. You now have both instrument measurements AND human vibration ratings
+     for the same surfaces. Fit a simple regression:
+       [Ra, compliance, friction, GelSight amplitude] → [5 dimension scores]
+     Even a linear regression is sufficient here — the goal is calibration,
+     not a complex model.
+
+  5. Use this fitted calibration to convert all dataset instrument labels
+     to perceptual dimension targets before training the regression model.
+     This replaces min-max normalization with empirically grounded scaling.
+
+RESULT
+  The mapping from physical units to dimension targets goes from
+  "we think Ra maps to rough/smooth" to "we measured R²=X for that
+  relationship across 20-30 calibration surfaces." The regression model's
+  training targets become defensible rather than assumed.
+
+  Per-dimension R² from the calibration regression should be reported
+  as a transparency metric in any write-up of the system.
+
+NORMALIZATION
+  After calibration, apply per-dataset min-max normalization before
+  combining datasets, using the calibration regression's predicted
+  range as the reference scale.
+
+
+================================================================================
+PRIMITIVE MAPPING STRATEGY
+================================================================================
+
+The mapping from perceptual dimensions to haptic primitives has no existing
+ground truth dataset. The chosen approach combines two options:
+
+Option A — Perceptual Study (ground truth generation)
+  Participants view texture images, feel haptic playbacks on a phone, and
+  rate each playback on the 5 perceptual dimensions. The 20-30 calibration
+  surfaces (see above) are embedded in the study stimulus set.
+  Study produces labeled (image, dimension ratings, primitive weight vector)
+  triples used to train the mapping MLP.
+
+Option C — Learn the mapping MLP from study labels
+  Train a small MLP (5 perceptual dimensions → 7 primitive weights) directly
+  on the perceptual study output. Data-driven and refineable as more study
+  data is collected. Replaces hand-designed rules entirely.
+
+PRIMITIVE_SPIN handling:
+  Removed from learned outputs in v1. Fixed at 0.05. Revisit with video.
+
+
+================================================================================
+PERCEPTUAL STUDY DESIGN
+================================================================================
+
+PURPOSE
+  Generate ground truth labels for the mapping MLP and empirically calibrate
+  the dataset-to-dimension mapping. All ratings are based on haptic vibration
+  playback through a phone screen — not physical surface contact.
+
+STIMULI
+  60 texture images total:
+    - 20-30 calibration surfaces drawn from Purri dataset (instrument-measured)
+    - Remaining images drawn from diverse material categories (fabric, metal,
+      wood, plastic, foam, glass, rubber, paper, stone, ceramic)
+    - Spread across extremes and mid-range of all 5 perceptual dimensions
+    - All images pre-cropped to texture region, standardized lighting
+
+  With 5 participants and 60 images:
+    5 ratings × 5 dimensions × 60 images = 1,500 individual dimension ratings
+    5 primitive blend selections × 60 images = 300 primitive labels
+
+PER-PARTICIPANT LOAD (5 participants)
+  Each participant rates all 60 images.
+  Per image: ~50 seconds (20s dimension sliders + 30s primitive selection)
+  Total: ~50 minutes per participant
+  Split into 2 sessions of ~25 minutes with a break to reduce fatigue.
+  10 images repeated across sessions for within-participant reliability check.
+
+RATING FORMAT
+  For each texture image + haptic playback:
+
+  Step 1 — Dimension ratings (5 sliders, 1–9 scale):
+    Rough  [1]--------[9]  Smooth
+    Fine   [1]--------[9]  Coarse
+    Sharp  [1]--------[9]  Dull
+    Fast   [1]--------[9]  Slow
+    Strong [1]--------[9]  Weak
+
+  Step 2 — Primitive match:
+    Play 3-4 candidate primitive blends. Participant selects which feels
+    most like the texture in the image. Selected blend becomes the
+    primitive weight vector label for that (image, participant) pair.
+    Each blend played twice before participant rates.
+
+HARDWARE AND RELIABILITY CONTROLS
+  Same phone model for all participants — different Android devices produce
+  different vibration output for the same API call. Do not mix devices.
+
+  Intensity calibration anchor at session start:
+    Play a single PRIMITIVE_TICK at full amplitude as a reference.
+    Participant rates it on the Strong/Weak slider first.
+    This anchors their intensity scale and allows cross-participant
+    normalization if needed in future studies.
+
+  Test-retest reliability check:
+    10 images repeated across sessions 1 and 2.
+    Compute per-participant Pearson r on repeated items.
+    Minimum threshold: r > 0.7 to include participant's data.
+    Exclude or re-collect below threshold — do not train on unreliable labels.
+
+STUDY APP IMPLEMENTATION
+  Do not build a full app for v1. Use a minimal Android test harness:
+    - Simple activity with image display + VibrationEffect API calls
+    - Buttons to trigger primitive playbacks
+    - Google Form or in-app sliders for ratings
+  This is buildable in 1-2 days and unblocks data collection immediately.
+  Polish the app for the follow-up study (15-20 participants), not v1.
+
+AGGREGATION
+  Dimension ratings: mean across 5 participants per image.
+    Flag high-variance items (std > 2.0 on any dimension) — still useful
+    but down-weighted in mapping MLP loss.
+  Primitive weights: average selected blend vectors, renormalize to sum to 1.
+
+WHAT 5 PARTICIPANTS GIVES YOU
+  Enough to: initialize the mapping MLP, identify unambiguous extremes,
+             get rough inter-rater agreement structure.
+  Not enough to: robustly generalize to mid-range/ambiguous textures,
+                 validate fine-grained weight differences between primitives.
+  Plan: treat v1 study as initialization. Follow-up with 15-20 participants
+  to validate before claiming the mapping generalizes.
+
+
+================================================================================
+TRAINING STRATEGY
+================================================================================
+
+Multi-dataset regression with masked loss:
+  Loss = ((predictions - targets)^2 * mask).sum() / mask.sum()
+  Missing labels masked out, not zeroed, to avoid incorrect supervision.
+
+Backbone pre-training:
+  Train on texture classification datasets (DTD, KTH-TIPS2) first to give
+  the encoder texture-relevant visual features before regression fine-tuning.
+
+Perceptual dimension regression fine-tuning:
+  Fine-tune on instrument-measured datasets using calibrated dimension targets.
+  - Freeze encoder → train regression head first
+  - Then fine-tune end-to-end
+
+Data augmentation on small physical datasets (Purri, Devillard especially):
+    - Random crops at multiple scales
+    - Color jitter and lighting variation
+    - Gaussian blur
+    - Random rotations and flips
+    - Simulated viewpoint shift
+  Target 3-5x effective sample increase.
+  Weight strong/weak-labeled samples higher — least dataset coverage.
+
+Evaluation (per dimension, not combined):
+  - R² (variance explained)
+  - Pearson correlation
+  - MAE and RMSE
+  Report per-dimension from day one to catch weak heads early.
+
+Data split:
+  By material/object, not by image.
+  Split: 70% train / 15% validation / 15% test.
+
+
+================================================================================
+DATASETS
+================================================================================
+
+PRIMARY (instrument-measured — highest confidence):
+
+  Purri & Dana — Teaching Cameras to Feel (ECCV 2020)
+    Size:   ~400 multiview image sequences
+    Labels: 15 physical properties (BioTac Toccare): static/kinetic friction,
+            compliance, Ra roughness, adhesion, thermal conductance
+    Maps to: Rough/Smooth (Ra), Sharp/Dull (compliance), Strong/Weak (friction)
+    Role:   Core training data + source of 20-30 calibration surfaces.
+            Apply aggressive augmentation.
+    Link:   https://github.com/matthewpurri/Teaching-Cameras-to-Feel
+
+  Touch and Go (NeurIPS 2022) — Yang et al., U-Michigan / CMU
+    Size:   ~3,300 paired video + GelSight tactile clips
+    Labels: Hard/soft, rough/smooth binary + raw GelSight signals
+    Maps to: Rough/Smooth, Strong/Weak (GelSight amplitude)
+    Role:   Large-scale in-the-wild diversity.
+    Link:   https://touch-and-go.github.io
+
+  Touch100k (2024)
+    Size:   ~100,000 paired touch + image samples
+    Labels: GelSight deformation data (continuous); tactile descriptions
+    Maps to: Rough/Smooth, Fine/Coarse, Strong/Weak
+    Role:   Largest scale. Best for encoder pre-training.
+
+  Devillard et al. — Tactile, Audio, and Visual Dataset (Scientific Data 2025)
+    Size:   500 trials, 10 textures, 10 participants
+    Labels: Friction-induced vibrations, fingertip load, speed (instrument)
+    Maps to: Fast/Slow (vibration frequency), Strong/Weak (load magnitude)
+    Role:   Vibration signals directly align with Fast/Slow and Strong/Weak.
+            Apply aggressive augmentation.
+
+SECONDARY (texture classification — for backbone pre-training):
+
+  DTD — Describable Textures Dataset (CVPR 2014)
+    Size:   5,640 images, 47 texture attribute classes
+    Role:   Backbone pre-training on texture-relevant visual features.
+
+  KTH-TIPS2 (2006)
+    Size:   4,752 images, 11 material classes
+    Role:   Controlled material capture. Material-specific texture features.
+
+  ObjectFolder 2.0 — Stanford / CMU (CVPR 2022)
+    Size:   1,000 objects, simulated tactile data
+    Role:   Physics-grounded simulation. Compliance proxy labels.
+
+
+================================================================================
+MODELS
+================================================================================
+
+Tier 1 — Primary candidates:
+
+  DINOv2 + MLP regression head
+    Best for limited labeled data. Rich local texture representations.
+    Strategy: freeze encoder → train head → fine-tune end-to-end.
+
+  ConvNeXt-B/L + MLP regression head
+    Retains spatial frequency info better than ViTs for texture tasks.
+    Stronger when sufficient data for full end-to-end fine-tuning.
+
+Tier 2 — Secondary candidates:
+
+  CLIP ViT-L/14 + regression head
+    Strong generalist features. Good frozen backbone for very low data.
+
+  EfficientNetV2-M + regression head
+    Lightweight. Use first to validate pipeline end-to-end before scaling.
+
+Tier 3 — Baseline only:
+
+  ResNet-50 + regression head
+    Sanity check only. Confirms data pipeline and masked loss are correct.
+
+Regression head design:
+  Shared trunk MLP → per-dimension output branches
+  Linear → ReLU → Dropout → Linear (per dimension)
+  Rough/Smooth and Fine/Coarse are correlated — shared trunk handles this.
+
+
+================================================================================
+KEY DESIGN DECISIONS
+================================================================================
+
+1. Vibration-perceivable dimensions as the intermediate representation
+   The 5 dimensions are all discriminable through phone vibration alone.
+   Grounds the full pipeline in what the output hardware can deliver.
+
+2. Empirical calibration instead of assumed label mapping
+   The physical → dimension mapping is fitted from 20-30 calibration
+   surfaces with both instrument labels and human vibration ratings.
+   Replaces assumptions with measured R² values.
+
+3. Two-stage architecture (vision → dimensions → primitives)
+   Mapping layer stays separate from vision backbone. Interpretable and
+   debuggable intermediate. Failures can be localized to a specific stage.
+
+4. Study ratings done via phone vibration, not surface touch
+   Closes the loop between study measurement and system output.
+   No cognitive bridging required from participants.
+
+5. Minimal study app for v1, polished app for follow-up
+   Unblocks data collection immediately. Test harness buildable in 1-2 days.
+
+6. Same-device protocol + calibration anchor for study reliability
+   Eliminates hardware variability. Anchors intensity scale per participant.
+   Test-retest r > 0.7 threshold gates which participant data gets used.
+
+7. Masked loss for multi-dataset training
+   Missing labels masked out, not zeroed.
+
+8. Weighted mixture output (7 learned + 1 fixed)
+   PRIMITIVE_SPIN fixed at 0.05 in v1.
+
+9. Aggressive augmentation on small physical datasets
+   Purri and Devillard are the data bottleneck. 3-5x augmentation target.
+
+10. U²-Net-small for Stage 0
+    Full U²-Net too heavy for mobile. Small variant (~4MB) is the default.
+    Benchmark latency early on mid-range Android.
+
+
+================================================================================
+OPEN QUESTIONS
+================================================================================
+
+- Run calibration regression and report per-dimension R² before training
+- Confirm fixed reference value for PRIMITIVE_SPIN (starting point: 0.05)
+- Select phone model for study (one model, all participants)
+- Recruit 5 participants for v1 study
+- Define follow-up study timeline (target: 15-20 participants post-v1)
+
+
+================================================================================
+FUTURE WORK (v2+)
+================================================================================
+
+- Switch input from still image to short video to enable learned PRIMITIVE_SPIN
+- Expand perceptual study to 15-20 participants for robust mapping validation
+- Active learning: flag high-uncertainty images for physical measurement
+- Synthetic texture generation (procedural) to fill distribution gaps
+
+================================================================================
+END OF SUMMARY (v4 — FINAL BEFORE IMPLEMENTATION)
+================================================================================
