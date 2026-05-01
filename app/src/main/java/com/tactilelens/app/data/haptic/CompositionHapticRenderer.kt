@@ -115,11 +115,11 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
      * (per-material dot spacing in the UI), not by this renderer.
      */
     private fun swipeShape(material: Material?, axes: TextureAxes): Pair<Int, Float> = when (material) {
-        Material.WOOD -> PRIMITIVE_THUD to 0.60f
-        Material.GLASS -> PRIMITIVE_TICK to 0.45f
-        Material.ROCKS -> PRIMITIVE_LOW_TICK to 0.55f
-        Material.SAND -> PRIMITIVE_LOW_TICK to 0.45f
-        Material.FABRIC -> PRIMITIVE_LOW_TICK to 0.30f
+        Material.WOOD -> PRIMITIVE_THUD to 0.75f
+        Material.GLASS -> PRIMITIVE_TICK to 0.60f
+        Material.ROCKS -> PRIMITIVE_LOW_TICK to 0.75f
+        Material.SAND -> PRIMITIVE_LOW_TICK to 0.60f
+        Material.FABRIC -> PRIMITIVE_LOW_TICK to 0.45f
         null -> proceduralSwipeShape(axes)
     }
 

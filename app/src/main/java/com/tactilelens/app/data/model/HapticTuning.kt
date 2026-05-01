@@ -18,29 +18,29 @@ data class HapticTuning(
 ) {
     /** Wood: warm THUD then quieter TICK tail (knock + ring-out). */
     data class Wood(
-        val knockScale: Float = 0.55f,
+        val knockScale: Float = 0.70f,
         val gapMs: Int = 80,
-        val tailScale: Float = 0.30f,
+        val tailScale: Float = 0.40f,
     )
 
     /** Glass: sharp CLICK then short TICK (squeak/snap). */
     data class Glass(
-        val clickScale: Float = 0.85f,
+        val clickScale: Float = 0.95f,
         val gapMs: Int = 60,
-        val tickScale: Float = 0.40f,
+        val tickScale: Float = 0.55f,
     )
 
     /** Rocks: medium-density LOW_TICK train (granular crunch). */
     data class Rocks(
         val count: Int = 8,
-        val scale: Float = 0.65f,
+        val scale: Float = 0.80f,
         val intervalMs: Int = 60,
     )
 
     /** Sand: high-density low-amplitude LOW_TICKs (whispery hiss). */
     data class Sand(
         val count: Int = 16,
-        val scale: Float = 0.25f,
+        val scale: Float = 0.35f,
         val intervalMs: Int = 28,
     )
 
@@ -51,9 +51,9 @@ data class HapticTuning(
      */
     data class Fabric(
         val count: Int = 6,
-        val scale: Float = 0.30f,
+        val scale: Float = 0.45f,
         val intervalMs: Int = 50,
-        val dragTailScale: Float = 0.30f,
+        val dragTailScale: Float = 0.40f,
         val dragTailGapMs: Int = 60,
     )
 
@@ -64,10 +64,10 @@ data class HapticTuning(
      */
     data class Procedural(
         val tickMultiplier: Float = 6f,
-        val baseScale: Float = 0.5f,
+        val baseScale: Float = 0.65f,
         val jitter: Float = 0.1f,
         val intervalMs: Int = 60,
-        val frictionTailScale: Float = 0.4f,
+        val frictionTailScale: Float = 0.55f,
         val frictionTailGapMs: Int = 80,
     )
 }
