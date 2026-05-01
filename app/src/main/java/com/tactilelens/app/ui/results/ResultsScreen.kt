@@ -504,10 +504,10 @@ private fun MaterialDropdown(
  */
 @Composable
 private fun ConfidenceReadout(value: Float) {
-    val pct = (value * 100).coerceIn(0f, 100f)
+    val pct = (value * 100).coerceIn(0f, 100f).toInt()
     Column(horizontalAlignment = Alignment.End) {
         Text(
-            text = "%.2f".format(value.coerceIn(0f, 1f)),
+            text = "${pct}%",
             color = Bone,
             style = MaterialTheme.typography.headlineSmall,
         )
