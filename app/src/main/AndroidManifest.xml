@@ -14,6 +14,19 @@
         android:roundIcon="@drawable/app_icon"
         android:supportsRtl="true"
         android:theme="@style/Theme.App.Starting">
+
+        <!--
+          libQnnHtpV*Stub.so dlopens vendor libraries to talk to the
+          CDSP / Hexagon NPU. On Android 13+ vendor libs are namespace-
+          isolated from app code; without uses-native-library the loader
+          returns "library not found" for libcdsprpc.so. Marked optional
+          so the app still installs on devices/OS images that lack them
+          (everything just falls back to CPU there). Pattern lifted from
+          Qualcomm's image_classification_android sample.
+        -->
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

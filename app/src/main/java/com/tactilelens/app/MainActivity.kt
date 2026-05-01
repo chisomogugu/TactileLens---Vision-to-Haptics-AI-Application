@@ -193,7 +193,18 @@ fun ScannerApp(container: AppContainer) {
                 // segmentation is done so the animation never flickers
                 // between mock and real bitmaps.
                 delay(7000)
-                analysisResult = analysisDeferred.await()
+                val mockBased = analysisDeferred.await()
+                // Until Phase 4's LiteRTAnalysisClient lands, the texture
+                // axes + material come from the mock. Override the metadata
+                // fields so the latency pill on the Results screen reports
+                // real numbers from the U2Net pass — that's the only stage
+                // we actually run on real ML right now.
+                analysisResult = segmentation?.let { seg ->
+                    mockBased.copy(
+                        backendLabel = "U2Net: ${container.segmenter.backendLabel}",
+                        inferenceLatencyMs = seg.inferenceMs,
+                    )
+                } ?: mockBased
             }
             currentScreen = AppScreen.Results
         }

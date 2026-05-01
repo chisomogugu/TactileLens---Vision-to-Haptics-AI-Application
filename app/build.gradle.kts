@@ -44,6 +44,17 @@ android {
     androidResources {
         noCompress += "tflite"
     }
+
+    // QnnDelegate dlopen()s libQnnHtp.so by absolute path at runtime.
+    // Modern Android defaults (extractNativeLibs=false) keep the libs
+    // mmap'd inside the APK with no on-disk path, which breaks the
+    // dlopen call with "library ... not found". Force extraction so
+    // the .so files exist under nativeLibraryDir.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 dependencies {

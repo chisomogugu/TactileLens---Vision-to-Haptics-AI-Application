@@ -3,6 +3,7 @@ package com.tactilelens.app
 import android.content.Context
 import android.util.Log
 import com.tactilelens.app.data.analysis.AnalysisClient
+import com.tactilelens.app.data.analysis.LiteRTSession
 import com.tactilelens.app.data.analysis.MockAnalysisClient
 import com.tactilelens.app.data.analysis.U2NetSegmenter
 import com.tactilelens.app.data.audio.AudioRenderer
@@ -41,6 +42,13 @@ class AppContainer(private val context: Context) {
         haptic.setEnabled(true)
         runCatching { segmenter }.onFailure {
             Log.e(TAG, "U2NetSegmenter eager init failed", it)
+        }
+        // Phase 2 diagnostic: open the encoder + head as bare LiteRT
+        // sessions just so the resolved backend (NPU vs CPU) shows up
+        // in logcat. Closed immediately; Phase 4 owns the real lifecycle.
+        listOf("efficientnet_lite0.tflite", "linear_head.tflite").forEach { asset ->
+            runCatching { LiteRTSession(context, asset).use { /* logged in init */ } }
+                .onFailure { Log.e(TAG, "Smoke-load $asset failed", it) }
         }
     }
 

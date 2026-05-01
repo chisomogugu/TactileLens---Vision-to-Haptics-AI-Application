@@ -470,7 +470,7 @@ private fun BackendLatencyPill(
     latencyMs: Long,
     modifier: Modifier = Modifier,
 ) {
-    val isNpu = backendLabel == "NPU"
+    val isNpu = backendLabel.contains("NPU")
     Row(
         modifier = modifier
             .background(
