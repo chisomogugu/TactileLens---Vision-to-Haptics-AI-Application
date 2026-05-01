@@ -46,5 +46,18 @@ By offloading heavy matrix math to the NPU, the CPU remains free to drive the se
 - **Latency:** The complete pipeline (Segmentation -> Feature Extraction -> Haptic/Audio synthesis) is engineered to run in **< 20ms** to maintain the psychological "illusion of touch".
 - **Centroid Calibration:** The material classification (`MaterialCentroids.kt`) is empirically calibrated against the model's actual output space (mean of on-device captures for Glass, Paper, Wood, Rocks, Sand, Fabric) to ensure accurate fallback categorization.
 
-## 🤝 Team & Contribution
+## 🤝 Team
+
+| Name | GitHub | Email |
+|---|---|---|
+| Chisom Ogugu | [@chisomogugu](https://github.com/chisomogugu) | chisomogugu@gmail.com |
+| Oritsejolomisan Mebaghanje | [@mebaghanjejolomi](https://github.com/mebaghanjejolomi) | mebaghanjejolomi@gmail.com |
+| Madeline Rippin | [@mrippin1](https://github.com/mrippin1) | mrippin1@umbc.edu |
+| Edmond Ndanji | [@2bTwist](https://github.com/2bTwist) | ndanjiedmond@gmail.com |
+| Chris Dollo | [@chrisdollo](https://github.com/chrisdollo) | cdollo1@umbc.edu |
+
 This project showcases the integration of state-of-the-art edge AI with deeply integrated Android hardware APIs. It demonstrates our ability to communicate vision, structure high-performance code, and deliver a compelling, novel user experience.
+
+## 📄 License
+
+This project is released under the [MIT License](LICENSE).
