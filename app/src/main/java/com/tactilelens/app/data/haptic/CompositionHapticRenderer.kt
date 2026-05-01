@@ -4,7 +4,10 @@ import android.content.Context
 import android.os.VibrationEffect
 import android.os.VibrationEffect.Composition.PRIMITIVE_CLICK
 import android.os.VibrationEffect.Composition.PRIMITIVE_LOW_TICK
+import android.os.VibrationEffect.Composition.PRIMITIVE_QUICK_FALL
+import android.os.VibrationEffect.Composition.PRIMITIVE_QUICK_RISE
 import android.os.VibrationEffect.Composition.PRIMITIVE_SLOW_RISE
+import android.os.VibrationEffect.Composition.PRIMITIVE_SPIN
 import android.os.VibrationEffect.Composition.PRIMITIVE_THUD
 import android.os.VibrationEffect.Composition.PRIMITIVE_TICK
 import android.os.VibrationEffect.Composition.PRIMITIVE_QUICK_FALL
@@ -62,36 +65,42 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
         this.enabled = enabled
     }
 
-    override fun onGestureStart(material: Material?, axes: TextureAxes, velocity: Float) {
+    override fun onGestureStart(
+        material: Material?,
+        axes: TextureAxes,
+        velocity: Float,
+        primitiveWeights: FloatArray?,
+    ) {
         if (!enabled || vibrator == null) return
         val velocityScale = (0.5f + velocity.coerceIn(0f, 1f) * 0.5f)
         val effect = when (material) {
             Material.WOOD -> woodRecipe(velocityScale)
-            Material.GLASS -> glassRecipe(velocityScale)
+            Material.PAPER -> paperRecipe(velocityScale)
             Material.ROCKS -> rocksRecipe(velocityScale)
             Material.SAND -> sandRecipe(velocityScale)
-            null -> proceduralRecipe(axes, velocityScale)
+            Material.FABRIC -> fabricRecipe(velocityScale)
+            Material.GLASS -> proceduralRecipe(axes, velocityScale)  // Phase 6: glassRecipe()
+            // Open-vocabulary path. Locked decision Q7-B: when the ML pipeline
+            // produced an 8-vector signature use it as the gesture stamp;
+            // otherwise fall back to the axis-driven procedural recipe so
+            // canonical-weight-only callers (mock, dropdown override to null)
+            // still feel something.
+            null -> primitiveWeights?.let { mlPrimitiveRecipe(it, velocityScale) }
+                ?: proceduralRecipe(axes, velocityScale)
         }
         vibrator.vibrate(effect)
     }
 
     override fun onSwipeMove(material: Material?, axes: TextureAxes, velocity: Float) {
         if (!enabled || vibrator == null) return
-        val (primitive, ampBase) = swipeShape(material, axes)
-        // Velocity floor 0.85 (narrow [0.85, 1.0] range). A wider range
-        // collapses slow drags below feeling threshold; this was the
-        // "haptics feel too subtle" fix from the prior session.
-        val velFactor = 0.85f + velocity.coerceIn(0f, 1f) * 0.15f
-        val baseAmp = (ampBase * velFactor).coerceIn(0.08f, 1.0f)
-        val effect = VibrationEffect.startComposition()
-            .addPrimitive(primitive, baseAmp, 0)
-            .compose()
+        val velFactor = (0.85f + velocity.coerceIn(0f, 1f) * 0.15f)
+        val effect = swipeEffect(material, axes, velFactor)
         vibrator.vibrate(effect)
     }
 
     override fun onSwipeEnd() {
-        // No-op; the grid composable owns crossing detection and rate-throttle,
-        // and the renderer fires per-call. Lift state lives in the UI.
+        // Lift state lives in the UI (grid composable). Renderer fires
+        // per-call; nothing to clean up between gestures.
     }
 
     override fun play(recipe: HapticRecipe) {
@@ -111,72 +120,144 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
         vibrator?.cancel()
     }
 
-    /**
-     * Per-material drag character: which primitive to repeat, how loud
-     * relative to velocity. Density is owned by the grid composable
-     * (per-material dot spacing in the UI), not by this renderer.
-     */
-    private fun swipeShape(material: Material?, axes: TextureAxes): Pair<Int, Float> = when (material) {
-        Material.WOOD -> PRIMITIVE_THUD to 0.60f
-        Material.GLASS -> PRIMITIVE_TICK to 0.45f
-        Material.ROCKS -> PRIMITIVE_LOW_TICK to 0.55f
-        Material.SAND -> PRIMITIVE_LOW_TICK to 0.45f
-        null -> proceduralSwipeShape(axes)
+    // ----------------------------------------------------------------
+    // PER-CROSSING SWIPE EFFECTS
+    // ----------------------------------------------------------------
+    // Smooth materials (wood, paper) fire a SHORT discrete primitive per
+    // dot crossing — finger crosses, brief tactile event, no resistance.
+    //
+    // High-friction materials (fabric, rocks, sand) fire a SUSTAINED
+    // waveform burst (60–80 ms) per crossing whose duration EXCEEDS the
+    // 40 ms grid throttle. During active drag, consecutive bursts overlap
+    // and the next vibrate() call cancels the previous in-flight burst.
+    // The net felt effect is continuous "catching tension" — that is the
+    // resistance the user is asking for.
+    //
+    // Motion-gating is preserved: stationary finger fires no crossings,
+    // so no haptic events. Lift cancels any in-flight burst (stop()).
+    //
+    // Cross-modal coherence: bursts mirror the audio's stick-slip
+    // character. Fabric's rising-amp ramp = "tension building." Rocks'
+    // big-then-bigger spike = "climbing over a stone." Sand's rapid low
+    // oscillation = "many tiny grains dragging."
+
+    private fun swipeEffect(material: Material?, axes: TextureAxes, velFactor: Float): VibrationEffect {
+        return when (material) {
+            // Smooth surfaces: discrete primitive, no resistance.
+            Material.WOOD -> singlePrimitive(PRIMITIVE_QUICK_RISE, 0.85f, velFactor)
+            Material.PAPER -> singlePrimitive(PRIMITIVE_TICK, 0.85f, velFactor)
+            // High-friction surfaces: sustained burst per crossing, resistance feel.
+            Material.FABRIC -> fabricResistanceBurst(velFactor)
+            Material.SAND -> sandResistanceBurst(velFactor)
+            Material.ROCKS -> rocksResistanceBurst(velFactor)
+            Material.GLASS -> proceduralSwipeEffect(axes, velFactor)  // Phase 6: PRIMITIVE_QUICK_FALL
+            null -> proceduralSwipeEffect(axes, velFactor)
+        }
+    }
+
+    /** Smooth-surface effect: single Composition primitive, brief and discrete. */
+    private fun singlePrimitive(primitive: Int, ampBase: Float, velFactor: Float): VibrationEffect {
+        val baseAmp = (ampBase * velFactor).coerceIn(0.08f, 1.0f)
+        return VibrationEffect.startComposition()
+            .addPrimitive(primitive, baseAmp, 0)
+            .compose()
     }
 
     /**
-     * Replaces the old 1D frequency selector with the exact math from map_primitives.py.
+     * Fabric resistance: 80 ms rising-then-falling burst per crossing.
+     * Communicates "tension builds, then releases" — pulling through cloth.
      */
-    private fun predictPrimitives(axes: TextureAxes): Map<Int, Float> {
-        val r = axes.roughness.coerceIn(0f, 1f)
-        val h = axes.hardness.coerceIn(0f, 1f)
-        val fr = axes.friction.coerceIn(0f, 1f)
-        val d = axes.density.coerceIn(0f, 1f)
-
-        val raw = mapOf(
-            PRIMITIVE_TICK to r * h * d,
-            PRIMITIVE_LOW_TICK to r * (1 - h) * d,
-            PRIMITIVE_CLICK to h * d * (1 - r),
-            PRIMITIVE_THUD to (1 - h) * (1 - d),
-            PRIMITIVE_SLOW_RISE to (1 - r) * (1 - h) * fr,
-            PRIMITIVE_QUICK_RISE to h * (1 - r),
-            PRIMITIVE_QUICK_FALL to (1 - fr) * (1 - r)
+    private fun fabricResistanceBurst(velFactor: Float): VibrationEffect {
+        val timings = longArrayOf(10, 15, 20, 15, 10, 10)
+        val amps = intArrayOf(
+            (120 * velFactor).toInt().coerceIn(40, 255),
+            (180 * velFactor).toInt().coerceIn(40, 255),
+            (240 * velFactor).toInt().coerceIn(60, 255),
+            (200 * velFactor).toInt().coerceIn(50, 255),
+            (150 * velFactor).toInt().coerceIn(40, 255),
+            (80 * velFactor).toInt().coerceIn(30, 255),
         )
-
-        val total = raw.values.sum() + 1e-6f
-        val weights = raw.mapValues { (it.value / total * 0.95f) }.toMutableMap()
-        weights[PRIMITIVE_SPIN] = 0.05f
-        return weights
+        return VibrationEffect.createWaveform(timings, amps, -1)
     }
 
-    private fun proceduralSwipeShape(axes: TextureAxes): Pair<Int, Float> {
-        val weights = predictPrimitives(axes)
-        val dominantEntry = weights.filterKeys { it != PRIMITIVE_SPIN }
-            .maxByOrNull { it.value }
-            
-        val key = dominantEntry?.key ?: PRIMITIVE_LOW_TICK
-        val value = dominantEntry?.value ?: 0.5f
-            
-        // Scale it up a bit since it's just one primitive running
-        return key to (value * 1.5f).coerceIn(0.1f, 1.0f)
+    /**
+     * Sand resistance: 48 ms rapid-grit burst per crossing. Many tiny
+     * grains under the fingertip — high-frequency low-amplitude oscillation.
+     */
+    private fun sandResistanceBurst(velFactor: Float): VibrationEffect {
+        val timings = longArrayOf(8, 8, 8, 8, 8, 8)
+        val high = (130 * velFactor).toInt().coerceIn(30, 255)
+        val low = (60 * velFactor).toInt().coerceIn(20, 255)
+        val amps = intArrayOf(high, low, high, low, high, low)
+        return VibrationEffect.createWaveform(timings, amps, -1)
     }
 
-    /** Wood: THUD + TICK (warm knock + ring-out). */
+    /**
+     * Rocks resistance: 60 ms big-catch burst per crossing. Initial
+     * spike + brief release + bigger spike = climbing over a stone.
+     */
+    private fun rocksResistanceBurst(velFactor: Float): VibrationEffect {
+        val timings = longArrayOf(15, 12, 25, 8)
+        val amps = intArrayOf(
+            (220 * velFactor).toInt().coerceIn(40, 255),
+            (60 * velFactor).toInt().coerceIn(20, 255),
+            (245 * velFactor).toInt().coerceIn(80, 255),
+            (90 * velFactor).toInt().coerceIn(30, 255),
+        )
+        return VibrationEffect.createWaveform(timings, amps, -1)
+    }
+
+    /**
+     * Procedural swipe (null material). Friction axis decides resistance:
+     * friction > 0.5 → waveform burst; otherwise → single primitive.
+     * Hardness picks the primitive type for the smooth case.
+     */
+    private fun proceduralSwipeEffect(axes: TextureAxes, velFactor: Float): VibrationEffect {
+        return if (axes.friction > 0.5f) {
+            // Resistance burst: amplitude shaped by roughness, rate by hardness.
+            val high = (180 + axes.roughness * 65 * velFactor).toInt().coerceIn(40, 255)
+            val low = (70 * velFactor).toInt().coerceIn(20, 255)
+            val cycleMs = (15 - axes.hardness * 6).toLong().coerceIn(8L, 20L)
+            val timings = longArrayOf(cycleMs, cycleMs, cycleMs + 2, cycleMs - 2, cycleMs, cycleMs)
+            val amps = intArrayOf(high, low, high, low, high, low)
+            VibrationEffect.createWaveform(timings, amps, -1)
+        } else {
+            // Smooth single primitive: hardness picks sharpness ladder.
+            val sharpness = (axes.hardness * 0.7f + (1f - axes.flatBumpy) * 0.3f).coerceIn(0f, 1f)
+            val primitive = when {
+                sharpness > 0.66f -> PRIMITIVE_CLICK
+                sharpness > 0.33f -> PRIMITIVE_TICK
+                else -> PRIMITIVE_LOW_TICK
+            }
+            val amp = (0.3f + axes.roughness * 0.3f) * velFactor
+            VibrationEffect.startComposition()
+                .addPrimitive(primitive, amp.coerceIn(0.08f, 1.0f), 0)
+                .compose()
+        }
+    }
+
+    /** Wood: rapid TICK grain run (mirrors scratching-wood-grain foley). */
     private fun woodRecipe(scale: Float): VibrationEffect {
         val cfg = tuning.wood
-        return VibrationEffect.startComposition()
-            .addPrimitive(PRIMITIVE_THUD, (cfg.knockScale * scale).coerceIn(0f, 1f), 0)
-            .addPrimitive(PRIMITIVE_TICK, (cfg.tailScale * scale).coerceIn(0f, 1f), cfg.gapMs)
-            .compose()
+        val comp = VibrationEffect.startComposition()
+        val count = cfg.count.coerceAtLeast(1)
+        val baseAmp = (cfg.scale * scale).coerceIn(0f, 1f)
+        repeat(count) { i ->
+            comp.addPrimitive(PRIMITIVE_TICK, jitterAmp(baseAmp), if (i == 0) 0 else cfg.intervalMs)
+        }
+        return comp.compose()
     }
 
-    /** Glass: CLICK + TICK (sharp squeak/snap). */
-    private fun glassRecipe(scale: Float): VibrationEffect {
-        val cfg = tuning.glass
-        return VibrationEffect.startComposition()
-            .addPrimitive(PRIMITIVE_CLICK, (cfg.clickScale * scale).coerceIn(0f, 1f), 0)
-            .addPrimitive(PRIMITIVE_TICK, (cfg.tickScale * scale).coerceIn(0f, 1f), cfg.gapMs)
-            .compose()
+    /** Paper: rapid TICK rustle (mirrors crumpling-paper foley). */
+    private fun paperRecipe(scale: Float): VibrationEffect {
+        val cfg = tuning.paper
+        val comp = VibrationEffect.startComposition()
+        val count = cfg.count.coerceAtLeast(1)
+        val baseAmp = (cfg.scale * scale).coerceIn(0f, 1f)
+        repeat(count) { i ->
+            comp.addPrimitive(PRIMITIVE_TICK, jitterAmp(baseAmp), if (i == 0) 0 else cfg.intervalMs)
+        }
+        return comp.compose()
     }
 
     /** Rocks: N x LOW_TICK at fixed intervals (granular crunch). */
@@ -204,8 +285,61 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
     }
 
     /**
-     * Procedural recipe (axes drive everything). Uses the exact mapping from map_primitives.py
-     * to build a multi-primitive haptic composition based on the top 3 dominant weights.
+     * Fabric: mid-density LOW_TICK weave with a SLOW_RISE drag-out tail.
+     * Communicates "soft scratchy buzz then sustained drag" — distinct from
+     * sand (denser, no tail) and rocks (sparser, much louder).
+     */
+    private fun fabricRecipe(scale: Float): VibrationEffect {
+        val cfg = tuning.fabric
+        val comp = VibrationEffect.startComposition()
+        val count = cfg.count.coerceAtLeast(1)
+        val baseAmp = (cfg.scale * scale).coerceIn(0f, 1f)
+        repeat(count) { i ->
+            comp.addPrimitive(PRIMITIVE_LOW_TICK, jitterAmp(baseAmp), if (i == 0) 0 else cfg.intervalMs)
+        }
+        comp.addPrimitive(
+            PRIMITIVE_SLOW_RISE,
+            (cfg.dragTailScale * scale).coerceIn(0.01f, 1f),
+            cfg.dragTailGapMs,
+        )
+        return comp.compose()
+    }
+
+    /**
+     * ML null-path gesture stamp. Plays the 8-element `map_primitives()`
+     * vector as a single Composition fired on touch-down — the open-
+     * vocabulary equivalent of a per-material signature recipe. Per locked
+     * decision Q7-B; canonical materials and the drag stream do not consume
+     * this. Primitives below a 0.05 amplitude floor are dropped to avoid
+     * inaudible micro-events; if every primitive falls under the floor the
+     * single strongest one is added so `compose()` doesn't see an empty
+     * composition (which throws).
+     */
+    private fun mlPrimitiveRecipe(weights: FloatArray, scale: Float): VibrationEffect {
+        require(weights.size == ML_PRIMITIVES.size) {
+            "primitiveWeights must have ${ML_PRIMITIVES.size} entries, got ${weights.size}"
+        }
+        val comp = VibrationEffect.startComposition()
+        var added = 0
+        for (i in ML_PRIMITIVES.indices) {
+            val amp = (weights[i] * scale).coerceIn(0.01f, 1.0f)
+            if (amp > 0.05f) {
+                comp.addPrimitive(ML_PRIMITIVES[i], amp, 0)
+                added++
+            }
+        }
+        if (added == 0) {
+            val maxIdx = weights.indices.maxBy { weights[it] }
+            val amp = (weights[maxIdx] * scale).coerceIn(0.01f, 1.0f)
+            comp.addPrimitive(ML_PRIMITIVES[maxIdx], amp, 0)
+        }
+        return comp.compose()
+    }
+
+    /**
+     * Procedural recipe (axes drive everything). Wobble-pattern amplitude
+     * jitter on each tick. 1D-frequency-axis primitive selection. Adds a
+     * SLOW_RISE friction-tail when friction > 0.5.
      */
     private fun proceduralRecipe(axes: TextureAxes, scale: Float): VibrationEffect {
         val weights = predictPrimitives(axes)
@@ -239,5 +373,21 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
 
     private companion object {
         private const val TAG = "TactileLensHaptic"
+
+        /**
+         * Primitive order MUST match `PrimitiveMapper.map(...)`'s output:
+         *   [0] TICK, [1] LOW_TICK, [2] CLICK, [3] THUD,
+         *   [4] SLOW_RISE, [5] QUICK_RISE, [6] QUICK_FALL, [7] SPIN.
+         */
+        private val ML_PRIMITIVES = intArrayOf(
+            PRIMITIVE_TICK,
+            PRIMITIVE_LOW_TICK,
+            PRIMITIVE_CLICK,
+            PRIMITIVE_THUD,
+            PRIMITIVE_SLOW_RISE,
+            PRIMITIVE_QUICK_RISE,
+            PRIMITIVE_QUICK_FALL,
+            PRIMITIVE_SPIN,
+        )
     }
 }

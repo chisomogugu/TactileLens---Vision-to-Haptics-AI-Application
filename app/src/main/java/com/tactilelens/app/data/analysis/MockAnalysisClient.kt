@@ -23,11 +23,19 @@ class MockAnalysisClient(@Suppress("UNUSED_PARAMETER") context: Context) : Analy
 
     private var counter: Int = 0
 
-    override suspend fun analyze(uri: Uri): AnalysisResult {
-        delay(1500)
+    override suspend fun analyze(
+        uri: Uri,
+        precomputed: U2NetSegmenter.SegmentationResult?,
+    ): AnalysisResult {
+        delay(MOCK_LATENCY_MS)
         val material = MATERIAL_CYCLE[counter % MATERIAL_CYCLE.size]
         counter++
-        return resultFor(material)
+        val base = resultFor(material)
+        return base.copy(
+            backendLabel = "MOCK",
+            inferenceLatencyMs = MOCK_LATENCY_MS,
+            primitiveWeights = PrimitiveMapper.map(base.axes),
+        )
     }
 
     /** Build an [AnalysisResult] for a known material with sensible axis defaults. */
@@ -38,11 +46,11 @@ class MockAnalysisClient(@Suppress("UNUSED_PARAMETER") context: Context) : Analy
             confidence = 0.82f,
             label = "wood",
         )
-        Material.GLASS -> AnalysisResult(
-            axes = TextureAxes(roughness = 0.05f, density = 0.05f, friction = 0.10f, hardness = 0.95f),
-            material = Material.GLASS,
-            confidence = 0.91f,
-            label = "glass",
+        Material.PAPER -> AnalysisResult(
+            axes = TextureAxes(roughness = 0.20f, flatBumpy = 0.05f, friction = 0.30f, hardness = 0.40f),
+            material = Material.PAPER,
+            confidence = 0.86f,
+            label = "paper",
         )
         Material.ROCKS -> AnalysisResult(
             axes = TextureAxes(roughness = 0.85f, density = 0.85f, friction = 0.55f, hardness = 0.85f),
@@ -56,6 +64,18 @@ class MockAnalysisClient(@Suppress("UNUSED_PARAMETER") context: Context) : Analy
             confidence = 0.88f,
             label = "sand",
         )
+        Material.FABRIC -> AnalysisResult(
+            axes = TextureAxes(roughness = 0.40f, flatBumpy = 0.20f, friction = 0.75f, hardness = 0.15f),
+            material = Material.FABRIC,
+            confidence = 0.85f,
+            label = "knitted",
+        )
+        Material.GLASS -> AnalysisResult(
+            axes = TextureAxes(roughness = 0.05f, flatBumpy = 0.05f, friction = 0.08f, hardness = 0.96f),
+            material = Material.GLASS,
+            confidence = 0.92f,
+            label = "glass",
+        )
         null -> AnalysisResult(
             axes = TextureAxes.Neutral,
             material = null,
@@ -65,11 +85,14 @@ class MockAnalysisClient(@Suppress("UNUSED_PARAMETER") context: Context) : Analy
     }
 
     private companion object {
+        private const val MOCK_LATENCY_MS: Long = 1500L
         private val MATERIAL_CYCLE = listOf(
             Material.SAND,
             Material.WOOD,
-            Material.GLASS,
+            Material.PAPER,
             Material.ROCKS,
+            Material.FABRIC,
+            Material.GLASS,
         )
     }
 }

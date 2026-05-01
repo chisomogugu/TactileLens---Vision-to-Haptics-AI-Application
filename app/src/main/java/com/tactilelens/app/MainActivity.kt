@@ -79,12 +79,16 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.tactilelens.app.data.analysis.U2NetSegmenter
 import com.tactilelens.app.data.model.AnalysisResult
 import com.tactilelens.app.ui.results.ResultsScreen
 import com.tactilelens.app.ui.theme.DeepSpace
@@ -139,7 +143,10 @@ fun ScannerApp(container: AppContainer) {
     var currentScreen by rememberSaveable { mutableStateOf(AppScreen.Scanner) }
     var imageUri by rememberSaveable { mutableStateOf<Uri?>(null) }
     var analysisResult by remember { mutableStateOf<AnalysisResult?>(null) }
-    var inProgressResult by remember { mutableStateOf<AnalysisResult?>(null) }
+    // Phase 2: U2Net result. Null until segmentation completes; the
+    // scanner reveal animation falls back to mock thermal/depth assets
+    // for the brief window before the model is done.
+    var segmentation by remember { mutableStateOf<U2NetSegmenter.SegmentationResult?>(null) }
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -164,11 +171,33 @@ fun ScannerApp(container: AppContainer) {
     LaunchedEffect(imageUri) {
         val captured = imageUri
         if (captured != null && currentScreen == AppScreen.Scanner) {
+            // Two-stage pipeline:
+            //   1. Run U2Net first (NPU, ~8 ms) so the reveal animation
+            //      mounts as soon as the saliency / mask / cropped bitmaps
+            //      are available. While in flight the scanner shows the
+            //      captured photo + basic ScannerOverlay sweep.
+            //   2. Hand the segmentation off to the analysis client to
+            //      avoid running U2Net a second time. The encoder + head
+            //      run inside analyze().
+            // The 2.6 s delay matches ScannerRevealEffect's 3 x 0.8 s
+            // passes plus a small buffer; ML pipeline finishes well inside
+            // it on the S25 Ultra.
             coroutineScope {
-                val result = container.analysis.analyze(captured)
-                inProgressResult = result
-                delay(7000)
-                analysisResult = result
+                val seg = withContext(Dispatchers.Default) {
+                    runCatching {
+                        val bm = loadBitmapFromUri(context, captured)
+                            ?: error("could not decode captured photo")
+                        container.segmenter.segment(bm)
+                    }.onFailure {
+                        Log.e("TactileLensML", "U2Net segmentation failed", it)
+                    }.getOrNull()
+                }
+                segmentation = seg
+                val analysisDeferred = async(Dispatchers.Default) {
+                    container.analysis.analyze(captured, seg)
+                }
+                delay(2600)
+                analysisResult = analysisDeferred.await()
             }
             currentScreen = AppScreen.Results
             inProgressResult = null
@@ -201,12 +230,12 @@ fun ScannerApp(container: AppContainer) {
             imageUri = imageUri,
             hasCameraPermission = hasCameraPermission,
             imageCapture = imageCapture,
-            inProgressResult = inProgressResult,
+            segmentation = segmentation,
             onCapture = { takePicture() },
-            onClearImage = { 
-                imageUri = null 
-                inProgressResult = null
-            }
+            onClearImage = {
+                imageUri = null
+                segmentation = null
+            },
         )
     } else {
         val result = analysisResult
@@ -215,6 +244,7 @@ fun ScannerApp(container: AppContainer) {
             // treat back as a hard reset to scanner.
             currentScreen = AppScreen.Scanner
             imageUri = null
+            segmentation = null
         } else {
             ResultsScreen(
                 imageUri = imageUri,
@@ -224,7 +254,8 @@ fun ScannerApp(container: AppContainer) {
                     currentScreen = AppScreen.Scanner
                     imageUri = null
                     analysisResult = null
-                }
+                    segmentation = null
+                },
             )
         }
     }
@@ -235,9 +266,9 @@ private fun ScannerScreen(
     imageUri: Uri?,
     hasCameraPermission: Boolean,
     imageCapture: ImageCapture,
-    inProgressResult: AnalysisResult?,
+    segmentation: U2NetSegmenter.SegmentationResult?,
     onCapture: () -> Unit,
-    onClearImage: () -> Unit
+    onClearImage: () -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -298,32 +329,39 @@ private fun ScannerScreen(
                     if (imageUri != null) {
                         val context = LocalContext.current
                         val imageBitmap by rememberLoadedBitmap(context, imageUri)
-                        
-                        // Use actual NPU images if available, else fallback to original image for the first few ms
-                        val thermalBitmap by produceState<ImageBitmap?>(initialValue = null, key1 = inProgressResult) {
-                            value = inProgressResult?.maskBitmap?.asImageBitmap() ?: imageBitmap
-                        }
-                        val depthBitmap by produceState<ImageBitmap?>(initialValue = null, key1 = inProgressResult) {
-                            value = inProgressResult?.croppedBitmap?.asImageBitmap() ?: imageBitmap
-                        }
 
-                        val tBitmap = thermalBitmap
-                        val dBitmap = depthBitmap
+                        // U2Net output drives the reveal directly. While
+                        // segmentation is in flight (or if it failed) we
+                        // show only the captured photo + a basic sweep —
+                        // never any mock placeholder bitmaps.
+                        val saliencyImg by produceState<ImageBitmap?>(initialValue = null, key1 = segmentation) {
+                            value = segmentation?.saliency?.asImageBitmap()
+                        }
+                        val maskImg by produceState<ImageBitmap?>(initialValue = null, key1 = segmentation) {
+                            value = segmentation?.maskWithBbox?.asImageBitmap()
+                        }
+                        val croppedImg by produceState<ImageBitmap?>(initialValue = null, key1 = segmentation) {
+                            value = segmentation?.cropped?.asImageBitmap()
+                        }
 
                         if (imageBitmap != null) {
-                            if (tBitmap != null && dBitmap != null) {
+                            val sal = saliencyImg
+                            val mask = maskImg
+                            val crop = croppedImg
+                            if (sal != null && mask != null && crop != null) {
                                 ScannerRevealEffect(
                                     originalBitmap = imageBitmap!!,
-                                    thermalBitmap = tBitmap,
-                                    depthBitmap = dBitmap,
-                                    modifier = Modifier.fillMaxSize()
+                                    saliencyBitmap = sal,
+                                    maskBitmap = mask,
+                                    croppedBitmap = crop,
+                                    modifier = Modifier.fillMaxSize(),
                                 )
                             } else {
                                 Image(
                                     bitmap = imageBitmap!!,
                                     contentDescription = "Captured image",
                                     modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
+                                    contentScale = ContentScale.Crop,
                                 )
                                 ScannerOverlay(active = true)
                             }
@@ -432,93 +470,109 @@ fun CameraPreview(
 @Composable
 fun ScannerRevealEffect(
     originalBitmap: ImageBitmap,
-    thermalBitmap: ImageBitmap,
-    depthBitmap: ImageBitmap,
-    modifier: Modifier = Modifier
+    saliencyBitmap: ImageBitmap,
+    maskBitmap: ImageBitmap,
+    croppedBitmap: ImageBitmap,
+    modifier: Modifier = Modifier,
 ) {
-    // Stage 0: Original -> Thermal (downward, 0..1)
-    // Stage 1: Thermal -> Depth (upward, 1..0)
-    // Stage 2: Done (holds Depth)
+    // 3-stage reveal mirroring the U2Net pipeline, scan line ping-pongs
+    // top->bottom, bottom->top, top->bottom.
+    //   Stage 0: Original     -> Saliency
+    //   Stage 1: Saliency     -> Mask + Bbox
+    //   Stage 2: Mask + Bbox  -> Cropped foreground
+    //   Stage 3: hold on Cropped
     var stage by remember { mutableStateOf(0) }
     var rawProgress by remember { mutableStateOf(0f) }
 
     LaunchedEffect(Unit) {
-        // Stage 0: scan DOWN (3.5s) -> reveals Thermal over Original
-        val steps = 70
-        val stepDuration = 3500L / steps
+        // Each stage: 0.8 s. Total ~2.4 s. NPU inference is ~8 ms so the
+        // capture-to-Results time is set entirely by this animation.
+        val steps = 50
+        val stageMs = 800L
+        val stepDuration = stageMs / steps
+        // Stage 0: scan down
         for (i in 0..steps) {
             rawProgress = i / steps.toFloat()
             kotlinx.coroutines.delay(stepDuration)
         }
         stage = 1
-        // Stage 1: scan UP (3.5s) -> reveals Depth over Thermal
+        // Stage 1: scan up
         for (i in steps downTo 0) {
             rawProgress = i / steps.toFloat()
             kotlinx.coroutines.delay(stepDuration)
         }
         stage = 2
+        // Stage 2: scan down again
+        for (i in 0..steps) {
+            rawProgress = i / steps.toFloat()
+            kotlinx.coroutines.delay(stepDuration)
+        }
+        stage = 3
     }
 
     Canvas(modifier = modifier) {
         val width = size.width
         val height = size.height
+        val dstSize = IntSize(width.toInt(), height.toInt())
+
+        // Center-crop semantics matching Image(ContentScale.Crop). Without
+        // this the transition from the loading-state Image to this Canvas
+        // visibly squeezes the captured photo because Canvas.drawImage's
+        // default behavior stretches src to dstSize.
+        fun cropFitSrc(bitmap: ImageBitmap): Pair<IntOffset, IntSize> {
+            val bAspect = bitmap.width.toFloat() / bitmap.height
+            val cAspect = width / height
+            return if (bAspect > cAspect) {
+                val srcW = (bitmap.height * cAspect).toInt()
+                IntOffset((bitmap.width - srcW) / 2, 0) to IntSize(srcW, bitmap.height)
+            } else {
+                val srcH = (bitmap.width / cAspect).toInt()
+                IntOffset(0, (bitmap.height - srcH) / 2) to IntSize(bitmap.width, srcH)
+            }
+        }
+
+        fun drawCropFit(bitmap: ImageBitmap) {
+            val (so, ss) = cropFitSrc(bitmap)
+            drawImage(bitmap, srcOffset = so, srcSize = ss, dstSize = dstSize)
+        }
+
+        fun drawScanLine(lineY: Float) {
+            drawLine(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color.Transparent, VividBlue, Color.Transparent),
+                    startY = lineY - 25f, endY = lineY + 25f,
+                ),
+                start = Offset(0f, lineY), end = Offset(width, lineY), strokeWidth = 6f,
+            )
+            drawLine(
+                color = Color.White.copy(alpha = 0.8f),
+                start = Offset(0f, lineY), end = Offset(width, lineY), strokeWidth = 2f,
+            )
+        }
 
         when (stage) {
             0 -> {
-                // Base: Original. Reveal: Thermal from top down.
-                drawImage(originalBitmap, dstSize = IntSize(width.toInt(), height.toInt()))
+                drawCropFit(originalBitmap)
                 val lineY = height * rawProgress
-                clipRect(top = 0f, bottom = lineY) {
-                    drawImage(thermalBitmap, dstSize = IntSize(width.toInt(), height.toInt()))
-                }
-                // Scanner line
-                drawLine(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, VividBlue, Color.Transparent),
-                        startY = lineY - 25f, endY = lineY + 25f
-                    ),
-                    start = Offset(0f, lineY), end = Offset(width, lineY), strokeWidth = 6f
-                )
-                drawLine(
-                    color = Color.White.copy(alpha = 0.8f),
-                    start = Offset(0f, lineY), end = Offset(width, lineY), strokeWidth = 2f
-                )
+                clipRect(top = 0f, bottom = lineY) { drawCropFit(saliencyBitmap) }
+                drawScanLine(lineY)
             }
             1 -> {
-                // Base: Thermal. Reveal: Depth from bottom up.
-                drawImage(thermalBitmap, dstSize = IntSize(width.toInt(), height.toInt()))
+                drawCropFit(saliencyBitmap)
                 val lineY = height * rawProgress
-                clipRect(top = lineY, bottom = height) {
-                    drawImage(depthBitmap, dstSize = IntSize(width.toInt(), height.toInt()))
-                }
-                // Scanner line
-                drawLine(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, VividBlue, Color.Transparent),
-                        startY = lineY - 25f, endY = lineY + 25f
-                    ),
-                    start = Offset(0f, lineY), end = Offset(width, lineY), strokeWidth = 6f
-                )
-                drawLine(
-                    color = Color.White.copy(alpha = 0.8f),
-                    start = Offset(0f, lineY), end = Offset(width, lineY), strokeWidth = 2f
-                )
+                clipRect(top = lineY, bottom = height) { drawCropFit(maskBitmap) }
+                drawScanLine(lineY)
+            }
+            2 -> {
+                drawCropFit(maskBitmap)
+                val lineY = height * rawProgress
+                clipRect(top = 0f, bottom = lineY) { drawCropFit(croppedBitmap) }
+                drawScanLine(lineY)
             }
             else -> {
-                // Done: hold on Depth
-                drawImage(depthBitmap, dstSize = IntSize(width.toInt(), height.toInt()))
+                drawCropFit(croppedBitmap)
             }
         }
-    }
-}
-
-private fun loadBitmapFromAssets(context: Context, fileName: String): Bitmap? {
-    return try {
-        context.assets.open(fileName).use { inputStream ->
-            android.graphics.BitmapFactory.decodeStream(inputStream)
-        }
-    } catch (e: Exception) {
-        null
     }
 }
 
@@ -659,9 +713,9 @@ private fun ScannerPreview() {
             imageUri = null,
             hasCameraPermission = true,
             imageCapture = ImageCapture.Builder().build(),
-            inProgressResult = null,
+            segmentation = null,
             onCapture = {},
-            onClearImage = {}
+            onClearImage = {},
         )
     }
 }

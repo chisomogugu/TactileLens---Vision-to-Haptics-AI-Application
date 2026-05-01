@@ -20,6 +20,5 @@ gradle-app.setting
 # JDT-specific (Eclipse Java Development Tools)
 .classpath
 
-# Local Environment Configuration
-local.properties
-.env
+# Local presentation deck (not shipped with the repo)
+PRESENTATION.md

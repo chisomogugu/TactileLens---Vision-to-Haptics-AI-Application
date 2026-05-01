@@ -10,37 +10,67 @@ package com.tactilelens.app.data.model
  */
 data class HapticTuning(
     val wood: Wood = Wood(),
-    val glass: Glass = Glass(),
+    val paper: Paper = Paper(),
     val rocks: Rocks = Rocks(),
     val sand: Sand = Sand(),
+    val fabric: Fabric = Fabric(),
     val procedural: Procedural = Procedural(),
 ) {
-    /** Wood: warm THUD then quieter TICK tail (knock + ring-out). */
+    /**
+     * Wood: rapid TICK grain run (matches scratching-wood foley).
+     *
+     * Mirrors stick-slip dynamics of a finger crossing wood grain (~100 Hz
+     * stick-slip = TICK band per AOSP haptics-constants-primitives). Replaces
+     * the prior THUD-knock-and-TICK-tail signature, which read as wood being
+     * STRUCK rather than wood being SCRATCHED. Cross-modal coherence per
+     * Google Haptics Principles: haptic gesture must match audio gesture.
+     */
     data class Wood(
-        val knockScale: Float = 0.55f,
-        val gapMs: Int = 80,
-        val tailScale: Float = 0.30f,
+        val count: Int = 6,
+        val scale: Float = 0.85f,
+        val intervalMs: Int = 35,
     )
 
-    /** Glass: sharp CLICK then short TICK (squeak/snap). */
-    data class Glass(
-        val clickScale: Float = 0.85f,
-        val gapMs: Int = 60,
-        val tickScale: Float = 0.40f,
+    /**
+     * Paper: rapid TICK rustle (mirrors crumpling-paper foley).
+     * Distinct from sand (LOW_TICK whispery) and fabric (LOW_TICK + tail).
+     */
+    data class Paper(
+        val count: Int = 5,
+        val scale: Float = 0.85f,
+        val intervalMs: Int = 40,
     )
 
     /** Rocks: medium-density LOW_TICK train (granular crunch). */
     data class Rocks(
         val count: Int = 8,
-        val scale: Float = 0.65f,
+        val scale: Float = 0.98f,
         val intervalMs: Int = 60,
     )
 
-    /** Sand: high-density low-amplitude LOW_TICKs (whispery hiss). */
+    /**
+     * Sand: very-high-density very-low-amplitude LOW_TICKs (whispery hiss).
+     * Tuned down to match the new highpassed/quieted sand foley — sand
+     * should feel almost subliminal under the finger, distinct from rocks
+     * which has weighty impact transients.
+     */
     data class Sand(
-        val count: Int = 16,
-        val scale: Float = 0.25f,
-        val intervalMs: Int = 28,
+        val count: Int = 18,
+        val scale: Float = 0.50f,
+        val intervalMs: Int = 22,
+    )
+
+    /**
+     * Fabric: mid-density LOW_TICKs followed by a SLOW_RISE drag-out
+     * (soft weave + draggy textile character). Sits between sand (denser,
+     * quieter, gritty) and rocks (sparser, louder, granular).
+     */
+    data class Fabric(
+        val count: Int = 6,
+        val scale: Float = 0.75f,
+        val intervalMs: Int = 50,
+        val dragTailScale: Float = 0.65f,
+        val dragTailGapMs: Int = 60,
     )
 
     /**
@@ -50,10 +80,10 @@ data class HapticTuning(
      */
     data class Procedural(
         val tickMultiplier: Float = 6f,
-        val baseScale: Float = 0.5f,
+        val baseScale: Float = 0.92f,
         val jitter: Float = 0.1f,
         val intervalMs: Int = 60,
-        val frictionTailScale: Float = 0.4f,
+        val frictionTailScale: Float = 0.80f,
         val frictionTailGapMs: Int = 80,
     )
 }

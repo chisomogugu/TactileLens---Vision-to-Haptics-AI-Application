@@ -37,12 +37,23 @@ android {
     buildFeatures {
         compose = true
     }
-    
-    // CRITICAL: Prevent Android from compressing .tflite files in the APK.
-    // If compressed, FileUtil.loadMappedFile() will fail or load the entire model into RAM,
-    // destroying NPU performance and memory mapping.
+
+    // .tflite files must remain uncompressed in the APK so LiteRT can
+    // mmap them directly. Compressed assets force a full RAM load and
+    // break the QNN delegate's zero-copy path.
     androidResources {
         noCompress += "tflite"
+    }
+
+    // QnnDelegate dlopen()s libQnnHtp.so by absolute path at runtime.
+    // Modern Android defaults (extractNativeLibs=false) keep the libs
+    // mmap'd inside the APK with no on-disk path, which breaks the
+    // dlopen call with "library ... not found". Force extraction so
+    // the .so files exist under nativeLibraryDir.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 }
 
@@ -76,4 +87,9 @@ dependencies {
     implementation(libs.androidx.camera.extensions)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.kotlinx.coroutines.android)
+
+    // LiteRT runtime + Qualcomm QNN delegate (Hexagon NPU). Locked decision Q3-A.
+    implementation(libs.litert)
+    implementation(libs.qnn.runtime)
+    implementation(libs.qnn.litert.delegate)
 }
