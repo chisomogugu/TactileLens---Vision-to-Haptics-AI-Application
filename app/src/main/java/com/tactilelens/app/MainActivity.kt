@@ -1,4 +1,4 @@
-package com.example.tactilelens
+package com.tactilelens.app
 
 import android.Manifest
 import android.content.Context
@@ -85,40 +85,60 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.example.tactilelens.ui.theme.DeepSpace
-import com.example.tactilelens.ui.theme.GlowCyan
-import com.example.tactilelens.ui.theme.NebulaBlue
-import com.example.tactilelens.ui.theme.VividBlue
-import com.example.tactilelens.ui.theme.TestProjectTheme
+import com.tactilelens.app.data.model.AnalysisResult
+import com.tactilelens.app.ui.results.ResultsScreen
+import com.tactilelens.app.ui.theme.DeepSpace
+import com.tactilelens.app.ui.theme.GlowCyan
+import com.tactilelens.app.ui.theme.NebulaBlue
+import com.tactilelens.app.ui.theme.VividBlue
+import com.tactilelens.app.ui.theme.TestProjectTheme
 import java.io.File
 import androidx.camera.core.Preview as CameraXPreview
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
+
+    private lateinit var appContainer: AppContainer
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        appContainer = AppContainer(applicationContext)
         setContent {
             TestProjectTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    ScannerApp()
+                    ScannerApp(appContainer)
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        appContainer.start()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        appContainer.stop()
     }
 }
 
 enum class AppScreen { Scanner, Results }
 
 @Composable
-fun ScannerApp() {
+fun ScannerApp(container: AppContainer) {
     val context = LocalContext.current
     var currentScreen by rememberSaveable { mutableStateOf(AppScreen.Scanner) }
     var imageUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var analysisResult by remember { mutableStateOf<AnalysisResult?>(null) }
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -141,8 +161,17 @@ fun ScannerApp() {
     }
 
     LaunchedEffect(imageUri) {
-        if (imageUri != null && currentScreen == AppScreen.Scanner) {
-            kotlinx.coroutines.delay(7000)
+        val captured = imageUri
+        if (captured != null && currentScreen == AppScreen.Scanner) {
+            // Run analysis in parallel with the scan reveal animation; wait
+            // for the longer of the two (the animation is the visible UX,
+            // the analysis is the work). Mock client returns ~1.5 s; the
+            // 7 s minimum keeps the scan reveal feeling complete.
+            coroutineScope {
+                val analysisDeferred = async { container.analysis.analyze(captured) }
+                delay(7000)
+                analysisResult = analysisDeferred.await()
+            }
             currentScreen = AppScreen.Results
         }
     }
@@ -177,13 +206,24 @@ fun ScannerApp() {
             onClearImage = { imageUri = null }
         )
     } else {
-        com.example.tactilelens.ui.ResultsScreen(
-            imageUri = imageUri,
-            onBack = { 
-                currentScreen = AppScreen.Scanner
-                imageUri = null
-            }
-        )
+        val result = analysisResult
+        if (result == null) {
+            // Defensive: if we somehow land on Results without a result,
+            // treat back as a hard reset to scanner.
+            currentScreen = AppScreen.Scanner
+            imageUri = null
+        } else {
+            ResultsScreen(
+                imageUri = imageUri,
+                analysisResult = result,
+                container = container,
+                onBack = {
+                    currentScreen = AppScreen.Scanner
+                    imageUri = null
+                    analysisResult = null
+                }
+            )
+        }
     }
 }
 

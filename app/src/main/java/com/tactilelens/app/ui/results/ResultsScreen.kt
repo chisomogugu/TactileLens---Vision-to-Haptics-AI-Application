@@ -1,4 +1,4 @@
-package com.example.tactilelens.ui
+package com.tactilelens.app.ui.results
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -6,7 +6,6 @@ import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,11 +29,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -43,45 +47,70 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.tactilelens.ui.theme.DeepSpace
-import com.example.tactilelens.ui.theme.GlowCyan
-import com.example.tactilelens.ui.theme.NebulaBlue
-import com.example.tactilelens.ui.theme.VividBlue
+import com.tactilelens.app.AppContainer
+import com.tactilelens.app.data.model.AnalysisResult
+import com.tactilelens.app.data.model.Material
+import com.tactilelens.app.data.model.TextureAxes
+import com.tactilelens.app.ui.theme.DeepSpace
+import com.tactilelens.app.ui.theme.GlowCyan
+import com.tactilelens.app.ui.theme.NebulaBlue
+import com.tactilelens.app.ui.theme.VividBlue
 
-data class HapticData(
-    val name: String = "TEXTURED FABRIC",
-    val latency: String = "42ms",
-    val roughness: Float = 0.1f,
-    val flatBumpy: Float = 0.2f,
-    val friction: Float = 0.1f,
-    val hardness: Float = 0.05f
-)
-
+/**
+ * Analysis Complete screen.
+ *
+ * Driven by an [AnalysisResult] from the analysis client and an [AppContainer]
+ * for renderer access. The Material name area is a dropdown trigger that
+ * lets the team A/B feel by overriding the ML's material guess at runtime.
+ *
+ * Material override flow: dropdown click → state mutation → LaunchedEffect
+ * pushes new material to renderers → InteractiveGridZone re-renders with
+ * the new per-material dot density.
+ */
 @Composable
 fun ResultsScreen(
     imageUri: Uri?,
-    onBack: () -> Unit
+    analysisResult: AnalysisResult,
+    container: AppContainer,
+    onBack: () -> Unit,
 ) {
     val context = LocalContext.current
-    val mockData = HapticData()
+    val axes = analysisResult.axes
+
+    var currentMaterial by remember(analysisResult) {
+        mutableStateOf(analysisResult.material)
+    }
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    // Push state to renderers whenever the user picks a different material.
+    LaunchedEffect(currentMaterial, axes) {
+        container.audio.setMaterial(currentMaterial)
+        container.audio.setAxes(axes)
+        container.haptic.onGestureStart(currentMaterial, axes, velocity = 0.6f)
+    }
+
+    // Clear renderer material on exit so the audio stream goes silent if
+    // we navigate back to scanner.
+    DisposableEffect(Unit) {
+        onDispose {
+            container.audio.setMaterial(null)
+            container.haptic.onSwipeEnd()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -91,29 +120,29 @@ fun ResultsScreen(
                     colors = listOf(
                         DeepSpace,
                         NebulaBlue.copy(alpha = 0.92f),
-                        Color(0xFF040B12)
-                    )
-                )
+                        Color(0xFF040B12),
+                    ),
+                ),
             )
             .systemBarsPadding()
-            .padding(bottom = 16.dp)
+            .padding(bottom = 16.dp),
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Header with Back Button
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
                     Icon(
                         imageVector = Icons.Filled.ArrowBack,
                         contentDescription = "Back",
-                        tint = Color.White
+                        tint = Color.White,
                     )
                 }
                 Text(
@@ -121,7 +150,7 @@ fun ResultsScreen(
                     color = Color.White.copy(alpha = 0.7f),
                     style = MaterialTheme.typography.titleMedium,
                     letterSpacing = 2.sp,
-                    modifier = Modifier.padding(start = 8.dp)
+                    modifier = Modifier.padding(start = 8.dp),
                 )
             }
 
@@ -132,8 +161,8 @@ fun ResultsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
-                    .padding(top = 24.dp), // Add top padding to clear the floating latency label
-                horizontalArrangement = Arrangement.spacedBy(24.dp)
+                    .padding(top = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 // Captured Image (Box 1)
                 Box(
@@ -146,10 +175,10 @@ fun ResultsScreen(
                             drawRoundRect(
                                 color = VividBlue.copy(alpha = 0.3f),
                                 style = Stroke(width = 1.dp.toPx()),
-                                cornerRadius = CornerRadius(32.dp.toPx())
+                                cornerRadius = CornerRadius(32.dp.toPx()),
                             )
                         },
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     if (imageUri != null) {
                         val imageBitmap by rememberLoadedBitmap(context, imageUri)
@@ -158,45 +187,45 @@ fun ResultsScreen(
                                 bitmap = it,
                                 contentDescription = "Captured texture",
                                 modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
+                                contentScale = ContentScale.Crop,
                             )
                         }
                     } else {
                         Text(
                             text = "NO IMAGE",
                             color = Color.White.copy(alpha = 0.3f),
-                            style = MaterialTheme.typography.bodyMedium
+                            style = MaterialTheme.typography.bodyMedium,
                         )
                     }
                 }
 
                 // Stats Section Container (Box 2)
                 val pagerState = rememberPagerState(pageCount = { 2 })
-                
+
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(160.dp)
+                        .height(160.dp),
                 ) {
-                    // Floating Latency Indicator (STRICTLY OUTSIDE AND ABOVE)
+                    // Floating Confidence Indicator
                     Row(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .offset(y = (-24).dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(
                             modifier = Modifier
                                 .size(6.dp)
-                                .background(GlowCyan, CircleShape)
+                                .background(GlowCyan, CircleShape),
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "LATENCY: ${mockData.latency}",
+                            text = "CONF: ${"%.0f".format(analysisResult.confidence * 100)}%",
                             color = GlowCyan.copy(alpha = 0.9f),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
+                            letterSpacing = 1.sp,
                         )
                     }
 
@@ -207,26 +236,28 @@ fun ResultsScreen(
                             .dashedBorder(
                                 color = VividBlue.copy(alpha = 0.6f),
                                 width = 2.dp,
-                                radius = 24.dp
+                                radius = 24.dp,
                             )
-                            .padding(12.dp)
+                            .padding(12.dp),
                     ) {
                         HorizontalPager(
                             state = pagerState,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
                         ) { page ->
                             if (page == 0) {
                                 Column(
-                                    modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
-                                    verticalArrangement = Arrangement.SpaceEvenly
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 4.dp),
+                                    verticalArrangement = Arrangement.SpaceEvenly,
                                 ) {
-                                    StatRow("ROUGHNESS", mockData.roughness)
-                                    StatRow("FLATBUMPY", mockData.flatBumpy)
-                                    StatRow("FRICTION", mockData.friction)
-                                    StatRow("HARDNESS", mockData.hardness)
+                                    StatRow("ROUGHNESS", "%.2f".format(axes.roughness))
+                                    StatRow("FLATBUMPY", "%.2f".format(axes.flatBumpy))
+                                    StatRow("FRICTION", "%.2f".format(axes.friction))
+                                    StatRow("HARDNESS", "%.2f".format(axes.hardness))
                                 }
                             } else {
-                                StatGraphView(mockData)
+                                StatGraphView(axes)
                             }
                         }
 
@@ -236,7 +267,7 @@ fun ResultsScreen(
                                 .height(8.dp)
                                 .fillMaxWidth()
                                 .align(Alignment.BottomCenter),
-                            horizontalArrangement = Arrangement.Center
+                            horizontalArrangement = Arrangement.Center,
                         ) {
                             repeat(2) { iteration ->
                                 val color = if (pagerState.currentPage == iteration) GlowCyan else Color.White.copy(alpha = 0.2f)
@@ -245,7 +276,7 @@ fun ResultsScreen(
                                         .padding(2.dp)
                                         .clip(CircleShape)
                                         .background(color)
-                                        .size(6.dp)
+                                        .size(6.dp),
                                 )
                             }
                         }
@@ -255,18 +286,72 @@ fun ResultsScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Name
-            Text(
-                text = "{${mockData.name}}",
-                color = Color.White,
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 4.sp
-            )
+            // Material name (clickable dropdown trigger).
+            Box {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { menuExpanded = true }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "{${displayName(currentMaterial, analysisResult.label)}}",
+                        color = Color.White,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 4.sp,
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Filled.ArrowDropDown,
+                        contentDescription = "Change material",
+                        tint = GlowCyan.copy(alpha = 0.8f),
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                    modifier = Modifier.background(DeepSpace),
+                ) {
+                    Material.values().forEach { mat ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = mat.display.uppercase(),
+                                    color = Color.White,
+                                    letterSpacing = 2.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            },
+                            onClick = {
+                                currentMaterial = mat
+                                menuExpanded = false
+                            },
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "PROCEDURAL / OTHER",
+                                color = GlowCyan,
+                                letterSpacing = 2.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        },
+                        onClick = {
+                            currentMaterial = null
+                            menuExpanded = false
+                        },
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Dotted Grid Touch Zone
+            // Interactive grid touch zone (rebuilt for per-material density,
+            // dot-crossing detection, and renderer plumbing).
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -278,38 +363,50 @@ fun ResultsScreen(
                         drawRoundRect(
                             color = Color.White.copy(alpha = 0.1f),
                             style = Stroke(width = 1.dp.toPx()),
-                            cornerRadius = CornerRadius(32.dp.toPx())
+                            cornerRadius = CornerRadius(32.dp.toPx()),
                         )
-                    }
+                    },
             ) {
-                InteractiveGridZone()
+                InteractiveGridZone(
+                    material = currentMaterial,
+                    axes = axes,
+                    onDotCross = { velocity ->
+                        container.audio.onContact(velocity)
+                        container.haptic.onSwipeMove(currentMaterial, axes, velocity)
+                    },
+                )
             }
         }
     }
 }
 
+private fun displayName(material: Material?, fallback: String): String =
+    material?.display?.uppercase() ?: fallback.uppercase()
+
 @Composable
-fun StatGraphView(data: HapticData) {
+private fun StatGraphView(axes: TextureAxes) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        GraphBar("ROUGHNESS", data.roughness)
-        GraphBar("FLATBUMPY", data.flatBumpy)
-        GraphBar("FRICTION", data.friction)
-        GraphBar("HARDNESS", data.hardness)
+        GraphBar("ROUGHNESS", axes.roughness)
+        GraphBar("FLATBUMPY", axes.flatBumpy)
+        GraphBar("FRICTION", axes.friction)
+        GraphBar("HARDNESS", axes.hardness)
     }
 }
 
 @Composable
-fun GraphBar(label: String, value: Float) {
+private fun GraphBar(label: String, value: Float) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = label,
             color = Color.White.copy(alpha = 0.5f),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            fontSize = 9.sp
+            fontSize = 9.sp,
         )
         Spacer(modifier = Modifier.height(2.dp))
         Box(
@@ -317,7 +414,7 @@ fun GraphBar(label: String, value: Float) {
                 .fillMaxWidth()
                 .height(6.dp)
                 .clip(RoundedCornerShape(3.dp))
-                .background(Color.White.copy(alpha = 0.05f))
+                .background(Color.White.copy(alpha = 0.05f)),
         ) {
             Box(
                 modifier = Modifier
@@ -325,115 +422,54 @@ fun GraphBar(label: String, value: Float) {
                     .fillMaxHeight()
                     .background(
                         brush = Brush.horizontalGradient(
-                            colors = listOf(VividBlue, GlowCyan)
-                        )
-                    )
+                            colors = listOf(VividBlue, GlowCyan),
+                        ),
+                    ),
             )
         }
     }
 }
 
 @Composable
-fun StatRow(label: String, value: Any) {
+private fun StatRow(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
             text = "$label:",
             color = Color.White.copy(alpha = 0.6f),
             style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.SemiBold,
         )
         Text(
-            text = value.toString(),
+            text = value,
             color = Color.White,
             style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
         )
     }
 }
 
-@Composable
-fun InteractiveGridZone(modifier: Modifier = Modifier) {
-    var touchPosition by remember { mutableStateOf<Offset?>(null) }
-
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .clipToBounds()
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val pos = event.changes.firstOrNull()?.position
-                        if (event.changes.any { it.pressed }) {
-                            touchPosition = pos
-                        } else {
-                            touchPosition = null
-                        }
-                    }
-                }
-            }
-    ) {
-        val spacing = 60f
-        val interactionRadius = 300f
-
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val width = size.width
-            val height = size.height
-
-            for (x in 0..width.toInt() step spacing.toInt()) {
-                for (y in 0..height.toInt() step spacing.toInt()) {
-                    val dotPos = Offset(x.toFloat(), y.toFloat())
-                    var radius = 4f
-                    var color = VividBlue.copy(alpha = 0.25f)
-
-                    touchPosition?.let { touch ->
-                        val distance = (dotPos - touch).getDistance()
-                        if (distance < interactionRadius) {
-                            val intensity = 1f - (distance / interactionRadius)
-                            // Scale up dots closer to touch
-                            radius = 4f + (12f * intensity)
-                            // Interpolate color towards theme GlowCyan
-                            color = lerp(
-                                VividBlue.copy(alpha = 0.25f),
-                                GlowCyan,
-                                intensity
-                            )
-                        }
-                    }
-
-                    drawCircle(
-                        color = color,
-                        radius = radius,
-                        center = dotPos
-                    )
-                }
-            }
-        }
-    }
-}
-
-fun Modifier.dashedBorder(color: Color, width: Dp, radius: Dp) = drawBehind {
+private fun Modifier.dashedBorder(color: Color, width: Dp, radius: Dp) = drawBehind {
     drawRoundRect(
         color = color,
         style = Stroke(
             width = width.toPx(),
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(20f, 20f), 0f)
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(20f, 20f), 0f),
         ),
-        cornerRadius = CornerRadius(radius.toPx())
+        cornerRadius = CornerRadius(radius.toPx()),
     )
 }
 
 @Composable
 private fun rememberLoadedBitmap(
     context: Context,
-    imageUri: Uri?
+    imageUri: Uri?,
 ) = produceState<ImageBitmap?>(
     initialValue = null,
     key1 = imageUri,
-    key2 = context
+    key2 = context,
 ) {
     value = imageUri?.let { loadBitmapFromUri(context, it)?.asImageBitmap() }
 }

@@ -1,4 +1,4 @@
-package com.example.tactilelens
+package com.tactilelens.app
 
 import org.junit.Test
 
