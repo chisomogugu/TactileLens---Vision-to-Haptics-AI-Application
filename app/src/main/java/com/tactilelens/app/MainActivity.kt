@@ -286,6 +286,8 @@ fun ScannerApp(container: AppContainer) {
                     analysisResult = null
                     segmentation = null
                 },
+                segmenterLatencyMs = segmentation?.inferenceMs,
+                segmenterBackendLabel = container.segmenter.backendLabel,
             )
         }
     }
@@ -440,7 +442,7 @@ private fun ScannerScreen(
                                     modifier = Modifier.fillMaxSize(),
                                 )
                                 Text(
-                                    text = "TAP TO FEEL",
+                                    text = "TAP A SURFACE",
                                     color = Color.White.copy(alpha = 0.65f),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,

@@ -85,12 +85,13 @@ fun InteractiveGridZone(
             val cols = (width / spacingPx).toInt() + 1
             val rows = (height / spacingPx).toInt() + 1
 
-            // Bone dots at low alpha on the Carbon canvas: high enough to read,
-            // low enough that they don't compete with the photo. On touch, the
-            // intensity lerp pulls them up to full Bone and tints toward Pulse
-            // (the live-signal accent) — instrument-grade contrast, no more
-            // blue-on-blue invisibility.
-            val baseDotColor = Bone.copy(alpha = 0.18f)
+            // Bone dots on the Iron panel surface. Higher baseline alpha
+            // than v1 (was 0.18 on Carbon) since the panel is now a
+            // brighter Iron and the dots need to read clearly as the
+            // tactile sampling grid. On touch the intensity lerp pulls
+            // them to full Bone and tints toward Pulse (the live-signal
+            // accent) for instrument-grade contrast.
+            val baseDotColor = Bone.copy(alpha = 0.35f)
             val activeDotColor = Pulse
             for (col in 0..cols) {
                 for (row in 0..rows) {

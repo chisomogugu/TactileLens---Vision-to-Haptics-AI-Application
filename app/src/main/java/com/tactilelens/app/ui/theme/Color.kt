@@ -34,6 +34,12 @@ val Snow = Color(0xFFFAFAFA)
 // Sole chromatic accent — Snapdragon-adjacent red. Used only for live signal.
 val Pulse = Color(0xFFFF4040)
 
+// Performance traffic-light. Used on the latency pills so a glance tells
+// you whether the model is hitting its NPU budget. Green if comfortably
+// under target, amber if marginal, Pulse (red) if over budget.
+val LatencyGood = Color(0xFF4ADE80)
+val LatencyWarn = Color(0xFFFACC15)
+
 // ------------------------------------------------------------------
 // Legacy palette — preserved as Deprecated typealiases for one-phase
 // transition compatibility. Phase 2 will sweep call sites to the
