@@ -2,7 +2,7 @@ package com.tactilelens.app
 
 import android.content.Context
 import com.tactilelens.app.data.analysis.AnalysisClient
-import com.tactilelens.app.data.analysis.MockAnalysisClient
+import com.tactilelens.app.data.analysis.RealAnalysisClient
 import com.tactilelens.app.data.audio.AudioRenderer
 import com.tactilelens.app.data.audio.SamplePackAudioRenderer
 import com.tactilelens.app.data.haptic.CompositionHapticRenderer

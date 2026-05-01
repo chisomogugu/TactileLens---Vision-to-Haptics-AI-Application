@@ -1,0 +1,27 @@
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+
+> Task :app:processDebugMainManifest FAILED
+[com.google.ai.edge.litert:litert-support:1.0.1] /Users/chisomogugu/.gradle/caches/9.4.1/transforms/946c3e4a6741e64ca093a50b2fd2b814/transformed/litert-support-1.0.1/AndroidManifest.xml Error:
+	Namespace 'org.tensorflow.lite.support' is used in multiple modules and/or libraries: com.google.ai.edge.litert:litert-support:1.0.1, com.google.ai.edge.litert:litert-support-api:1.0.1. Please ensure that all modules and libraries have a unique namespace. For more information, See https://developer.android.com/studio/build/configure-app-module#set-namespace
+/Users/chisomogugu/Documents/TactileLens---Vision-to-Haptics-AI-Application/app/src/main/AndroidManifest.xml Error:
+	Validation failed, exiting
+
+See https://developer.android.com/r/studio-ui/build/manifest-merger for more information about the manifest merger.
+
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:processDebugMainManifest'.
+> Manifest merger failed with multiple errors, see logs
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 1s
+2 actionable tasks: 1 executed, 1 up-to-date

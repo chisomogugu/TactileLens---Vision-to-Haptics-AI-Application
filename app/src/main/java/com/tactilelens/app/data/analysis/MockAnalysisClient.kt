@@ -33,25 +33,25 @@ class MockAnalysisClient(@Suppress("UNUSED_PARAMETER") context: Context) : Analy
     /** Build an [AnalysisResult] for a known material with sensible axis defaults. */
     fun resultFor(material: Material?): AnalysisResult = when (material) {
         Material.WOOD -> AnalysisResult(
-            axes = TextureAxes(roughness = 0.55f, flatBumpy = 0.45f, friction = 0.50f, hardness = 0.70f),
+            axes = TextureAxes(roughness = 0.55f, density = 0.45f, friction = 0.50f, hardness = 0.70f),
             material = Material.WOOD,
             confidence = 0.82f,
             label = "wood",
         )
         Material.GLASS -> AnalysisResult(
-            axes = TextureAxes(roughness = 0.05f, flatBumpy = 0.05f, friction = 0.10f, hardness = 0.95f),
+            axes = TextureAxes(roughness = 0.05f, density = 0.05f, friction = 0.10f, hardness = 0.95f),
             material = Material.GLASS,
             confidence = 0.91f,
             label = "glass",
         )
         Material.ROCKS -> AnalysisResult(
-            axes = TextureAxes(roughness = 0.85f, flatBumpy = 0.85f, friction = 0.55f, hardness = 0.85f),
+            axes = TextureAxes(roughness = 0.85f, density = 0.85f, friction = 0.55f, hardness = 0.85f),
             material = Material.ROCKS,
             confidence = 0.78f,
             label = "rocks",
         )
         Material.SAND -> AnalysisResult(
-            axes = TextureAxes(roughness = 0.95f, flatBumpy = 0.30f, friction = 0.40f, hardness = 0.30f),
+            axes = TextureAxes(roughness = 0.95f, density = 0.30f, friction = 0.40f, hardness = 0.30f),
             material = Material.SAND,
             confidence = 0.88f,
             label = "sand",

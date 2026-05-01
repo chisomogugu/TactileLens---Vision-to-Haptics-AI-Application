@@ -15,4 +15,6 @@ data class AnalysisResult(
     val material: Material?,
     val confidence: Float,
     val label: String,
+    val maskBitmap: android.graphics.Bitmap? = null,
+    val croppedBitmap: android.graphics.Bitmap? = null
 )

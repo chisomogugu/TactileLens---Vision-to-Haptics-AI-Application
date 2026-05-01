@@ -7,6 +7,9 @@ import android.os.VibrationEffect.Composition.PRIMITIVE_LOW_TICK
 import android.os.VibrationEffect.Composition.PRIMITIVE_SLOW_RISE
 import android.os.VibrationEffect.Composition.PRIMITIVE_THUD
 import android.os.VibrationEffect.Composition.PRIMITIVE_TICK
+import android.os.VibrationEffect.Composition.PRIMITIVE_QUICK_FALL
+import android.os.VibrationEffect.Composition.PRIMITIVE_QUICK_RISE
+import android.os.VibrationEffect.Composition.PRIMITIVE_SPIN
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
@@ -122,19 +125,40 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
     }
 
     /**
-     * 1D frequency-axis primitive selector (Pulsar pattern). Continuous
-     * `sharpness` derived from hardness + flatBumpy drives the choice
-     * between LOW_TICK / TICK / CLICK on a sharpness ladder.
+     * Replaces the old 1D frequency selector with the exact math from map_primitives.py.
      */
+    private fun predictPrimitives(axes: TextureAxes): Map<Int, Float> {
+        val r = axes.roughness.coerceIn(0f, 1f)
+        val h = axes.hardness.coerceIn(0f, 1f)
+        val fr = axes.friction.coerceIn(0f, 1f)
+        val d = axes.density.coerceIn(0f, 1f)
+
+        val raw = mapOf(
+            PRIMITIVE_TICK to r * h * d,
+            PRIMITIVE_LOW_TICK to r * (1 - h) * d,
+            PRIMITIVE_CLICK to h * d * (1 - r),
+            PRIMITIVE_THUD to (1 - h) * (1 - d),
+            PRIMITIVE_SLOW_RISE to (1 - r) * (1 - h) * fr,
+            PRIMITIVE_QUICK_RISE to h * (1 - r),
+            PRIMITIVE_QUICK_FALL to (1 - fr) * (1 - r)
+        )
+
+        val total = raw.values.sum() + 1e-6f
+        val weights = raw.mapValues { (it.value / total * 0.95f) }.toMutableMap()
+        weights[PRIMITIVE_SPIN] = 0.05f
+        return weights
+    }
+
     private fun proceduralSwipeShape(axes: TextureAxes): Pair<Int, Float> {
-        val sharpness = (axes.hardness * 0.7f + (1f - axes.flatBumpy) * 0.3f).coerceIn(0f, 1f)
-        val primitive = when {
-            sharpness > 0.66f -> PRIMITIVE_CLICK
-            sharpness > 0.33f -> PRIMITIVE_TICK
-            else -> PRIMITIVE_LOW_TICK
-        }
-        val amp = 0.3f + axes.roughness * 0.3f
-        return primitive to amp
+        val weights = predictPrimitives(axes)
+        val dominantEntry = weights.filterKeys { it != PRIMITIVE_SPIN }
+            .maxByOrNull { it.value }
+            
+        val key = dominantEntry?.key ?: PRIMITIVE_LOW_TICK
+        val value = dominantEntry?.value ?: 0.5f
+            
+        // Scale it up a bit since it's just one primitive running
+        return key to (value * 1.5f).coerceIn(0.1f, 1.0f)
     }
 
     /** Wood: THUD + TICK (warm knock + ring-out). */
@@ -180,32 +204,23 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
     }
 
     /**
-     * Procedural recipe (axes drive everything). Wobble-pattern amplitude
-     * jitter on each tick. 1D-frequency-axis primitive selection. Adds a
-     * SLOW_RISE friction-tail when friction > 0.5.
+     * Procedural recipe (axes drive everything). Uses the exact mapping from map_primitives.py
+     * to build a multi-primitive haptic composition based on the top 3 dominant weights.
      */
     private fun proceduralRecipe(axes: TextureAxes, scale: Float): VibrationEffect {
-        val cfg = tuning.procedural
+        val weights = predictPrimitives(axes)
         val comp = VibrationEffect.startComposition()
-        val tickCount = (1 + (axes.roughness * cfg.tickMultiplier).toInt()).coerceAtLeast(1)
-        val sharpness = (axes.hardness * 0.7f + (1f - axes.flatBumpy) * 0.3f).coerceIn(0f, 1f)
-        val primitive = when {
-            sharpness > 0.66f -> PRIMITIVE_CLICK
-            sharpness > 0.33f -> PRIMITIVE_TICK
-            else -> PRIMITIVE_LOW_TICK
-        }
-        val baseAmp = (cfg.baseScale * scale * (0.6f + axes.flatBumpy * 0.4f)).coerceIn(0.01f, 1f)
-        repeat(tickCount) { i ->
-            comp.addPrimitive(primitive, jitterAmp(baseAmp, cfg.jitter), if (i == 0) 0 else cfg.intervalMs)
-        }
-        if (axes.friction > 0.5f) {
-            // Friction tail: a SLOW_RISE drag-out. Amp deterministic; accents
-            // shouldn't jitter (Wobble convention).
-            comp.addPrimitive(
-                PRIMITIVE_SLOW_RISE,
-                (cfg.frictionTailScale * scale).coerceIn(0.01f, 1f),
-                cfg.frictionTailGapMs,
-            )
+        
+        // Take top 3 dominant primitives (excluding SPIN)
+        val dominant = weights.filterKeys { it != PRIMITIVE_SPIN }
+            .entries.sortedByDescending { it.value }
+            .take(3)
+            
+        dominant.forEachIndexed { index, entry ->
+            // Boost the weight scale slightly so it's felt
+            val amp = (entry.value * scale * 1.5f).coerceIn(0.01f, 1.0f)
+            // Add a small 10ms gap between primitives in the chord
+            comp.addPrimitive(entry.key, jitterAmp(amp), if (index == 0) 0 else 10)
         }
         return comp.compose()
     }

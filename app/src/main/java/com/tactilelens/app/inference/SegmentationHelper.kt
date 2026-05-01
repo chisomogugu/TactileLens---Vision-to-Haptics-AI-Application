@@ -53,13 +53,15 @@ class SegmentationHelper(private val context: Context) {
         }
     }
 
+    data class SegmentationResult(val croppedBitmap: Bitmap, val maskBitmap: Bitmap)
+
     /**
-     * Segments the input frame and returns a Bitmap containing ONLY the foreground object.
+     * Segments the input frame and returns both the foreground object and the B/W mask.
      */
-    fun segmentForeground(bitmap: Bitmap, onResult: (Bitmap?) -> Unit) {
+    fun segmentForeground(bitmap: Bitmap, onResult: (SegmentationResult?) -> Unit) {
         if (interpreter == null) {
-            Log.e("SegmentationHelper", "Interpreter not initialized. Returning original.")
-            onResult(bitmap)
+            Log.e("SegmentationHelper", "Interpreter not initialized. Returning null.")
+            onResult(null)
             return
         }
 
@@ -67,35 +69,46 @@ class SegmentationHelper(private val context: Context) {
             // 1. Preprocess the image for U2Net
             val tensorImage = imageProcessor.process(TensorImage.fromBitmap(bitmap))
             
-            // 2. Prepare output buffer (U2Net outputs a 1-channel alpha mask, e.g. 1x320x320x1)
+            // 2. Prepare output buffer
             val outputTensor = interpreter!!.getOutputTensor(0)
-            val (_, h, w, c) = outputTensor.shape()
-            val outputBuffer = FloatBuffer.allocate(h * w * c)
+            val shape = outputTensor.shape()
+            // NCHW is [1, 1, 320, 320], NHWC is [1, 320, 320, 1]. Grab the actual spatial dimensions.
+            val maskH = if (shape[1] > 1) shape[1] else shape[2]
+            val maskW = if (shape[1] > 1) shape[2] else shape[3]
+            
+            val outputBuffer = FloatBuffer.allocate(maskH * maskW)
 
             // 3. Run Inference on NPU
             interpreter!!.run(tensorImage.tensorBuffer.buffer, outputBuffer)
 
             // 4. Post-process: Apply the mask back to the original bitmap
             outputBuffer.rewind()
-            val maskedBitmap = applyMask(bitmap, outputBuffer, w, h)
+            val result = applyMask(bitmap, outputBuffer, maskW, maskH)
             
-            onResult(maskedBitmap)
+            onResult(result)
 
         } catch (e: Exception) {
             Log.e("SegmentationHelper", "U2Net segmentation failed: ${e.message}")
-            onResult(bitmap) 
+            onResult(null) 
         }
     }
 
-    private fun applyMask(original: Bitmap, maskBuffer: FloatBuffer, maskW: Int, maskH: Int): Bitmap {
+    private fun applyMask(original: Bitmap, maskBuffer: FloatBuffer, maskW: Int, maskH: Int): SegmentationResult {
         // Create a scaled down version of the original to match mask dimensions
         val scaledOriginal = Bitmap.createScaledBitmap(original, maskW, maskH, true)
         val maskedBitmap = Bitmap.createBitmap(maskW, maskH, Bitmap.Config.ARGB_8888)
+        val bwMaskBitmap = Bitmap.createBitmap(maskW, maskH, Bitmap.Config.ARGB_8888)
         
         // Very basic mask application: if mask value > threshold, keep pixel, else transparent
         for (y in 0 until maskH) {
             for (x in 0 until maskW) {
                 val maskValue = maskBuffer.get(y * maskW + x)
+                
+                // Grayscale pixel for mask
+                val intensity = (maskValue.coerceIn(0f, 1f) * 255).toInt()
+                val maskColor = Color.argb(255, intensity, intensity, intensity)
+                bwMaskBitmap.setPixel(x, y, maskColor)
+
                 if (maskValue > 0.5f) { // Threshold
                     maskedBitmap.setPixel(x, y, scaledOriginal.getPixel(x, y))
                 } else {
@@ -104,8 +117,10 @@ class SegmentationHelper(private val context: Context) {
             }
         }
         
-        // Scale it back to original size for the next stage (MobileNet)
-        return Bitmap.createScaledBitmap(maskedBitmap, original.width, original.height, true)
+        // Scale it back to original size for the next stage
+        val finalMasked = Bitmap.createScaledBitmap(maskedBitmap, original.width, original.height, true)
+        val finalBwMask = Bitmap.createScaledBitmap(bwMaskBitmap, original.width, original.height, true)
+        return SegmentationResult(finalMasked, finalBwMask)
     }
 
     fun close() {

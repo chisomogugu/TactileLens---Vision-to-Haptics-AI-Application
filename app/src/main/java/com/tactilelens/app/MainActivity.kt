@@ -139,6 +139,7 @@ fun ScannerApp(container: AppContainer) {
     var currentScreen by rememberSaveable { mutableStateOf(AppScreen.Scanner) }
     var imageUri by rememberSaveable { mutableStateOf<Uri?>(null) }
     var analysisResult by remember { mutableStateOf<AnalysisResult?>(null) }
+    var inProgressResult by remember { mutableStateOf<AnalysisResult?>(null) }
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -163,16 +164,14 @@ fun ScannerApp(container: AppContainer) {
     LaunchedEffect(imageUri) {
         val captured = imageUri
         if (captured != null && currentScreen == AppScreen.Scanner) {
-            // Run analysis in parallel with the scan reveal animation; wait
-            // for the longer of the two (the animation is the visible UX,
-            // the analysis is the work). Mock client returns ~1.5 s; the
-            // 7 s minimum keeps the scan reveal feeling complete.
             coroutineScope {
-                val analysisDeferred = async { container.analysis.analyze(captured) }
+                val result = container.analysis.analyze(captured)
+                inProgressResult = result
                 delay(7000)
-                analysisResult = analysisDeferred.await()
+                analysisResult = result
             }
             currentScreen = AppScreen.Results
+            inProgressResult = null
         }
     }
 
@@ -202,8 +201,12 @@ fun ScannerApp(container: AppContainer) {
             imageUri = imageUri,
             hasCameraPermission = hasCameraPermission,
             imageCapture = imageCapture,
+            inProgressResult = inProgressResult,
             onCapture = { takePicture() },
-            onClearImage = { imageUri = null }
+            onClearImage = { 
+                imageUri = null 
+                inProgressResult = null
+            }
         )
     } else {
         val result = analysisResult
@@ -232,6 +235,7 @@ private fun ScannerScreen(
     imageUri: Uri?,
     hasCameraPermission: Boolean,
     imageCapture: ImageCapture,
+    inProgressResult: AnalysisResult?,
     onCapture: () -> Unit,
     onClearImage: () -> Unit
 ) {
@@ -295,12 +299,12 @@ private fun ScannerScreen(
                         val context = LocalContext.current
                         val imageBitmap by rememberLoadedBitmap(context, imageUri)
                         
-                        // Load mock data images from assets
-                        val thermalBitmap by produceState<ImageBitmap?>(initialValue = null) {
-                            value = loadBitmapFromAssets(context, "thermal_map.png")?.asImageBitmap()
+                        // Use actual NPU images if available, else fallback to original image for the first few ms
+                        val thermalBitmap by produceState<ImageBitmap?>(initialValue = null, key1 = inProgressResult) {
+                            value = inProgressResult?.maskBitmap?.asImageBitmap() ?: imageBitmap
                         }
-                        val depthBitmap by produceState<ImageBitmap?>(initialValue = null) {
-                            value = loadBitmapFromAssets(context, "depth_wireframe.png")?.asImageBitmap()
+                        val depthBitmap by produceState<ImageBitmap?>(initialValue = null, key1 = inProgressResult) {
+                            value = inProgressResult?.croppedBitmap?.asImageBitmap() ?: imageBitmap
                         }
 
                         val tBitmap = thermalBitmap
@@ -655,6 +659,7 @@ private fun ScannerPreview() {
             imageUri = null,
             hasCameraPermission = true,
             imageCapture = ImageCapture.Builder().build(),
+            inProgressResult = null,
             onCapture = {},
             onClearImage = {}
         )

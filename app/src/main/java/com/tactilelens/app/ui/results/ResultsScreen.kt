@@ -252,7 +252,7 @@ fun ResultsScreen(
                                     verticalArrangement = Arrangement.SpaceEvenly,
                                 ) {
                                     StatRow("ROUGHNESS", "%.2f".format(axes.roughness))
-                                    StatRow("FLATBUMPY", "%.2f".format(axes.flatBumpy))
+                                    StatRow("DENSITY", "%.2f".format(axes.density))
                                     StatRow("FRICTION", "%.2f".format(axes.friction))
                                     StatRow("HARDNESS", "%.2f".format(axes.hardness))
                                 }
@@ -392,7 +392,7 @@ private fun StatGraphView(axes: TextureAxes) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         GraphBar("ROUGHNESS", axes.roughness)
-        GraphBar("FLATBUMPY", axes.flatBumpy)
+        GraphBar("DENSITY", axes.density)
         GraphBar("FRICTION", axes.friction)
         GraphBar("HARDNESS", axes.hardness)
     }
