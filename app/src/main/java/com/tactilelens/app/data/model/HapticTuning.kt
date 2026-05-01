@@ -16,11 +16,19 @@ data class HapticTuning(
     val fabric: Fabric = Fabric(),
     val procedural: Procedural = Procedural(),
 ) {
-    /** Wood: warm THUD then quieter TICK tail (knock + ring-out). */
+    /**
+     * Wood: rapid TICK grain run (matches scratching-wood foley).
+     *
+     * Mirrors stick-slip dynamics of a finger crossing wood grain (~100 Hz
+     * stick-slip = TICK band per AOSP haptics-constants-primitives). Replaces
+     * the prior THUD-knock-and-TICK-tail signature, which read as wood being
+     * STRUCK rather than wood being SCRATCHED. Cross-modal coherence per
+     * Google Haptics Principles: haptic gesture must match audio gesture.
+     */
     data class Wood(
-        val knockScale: Float = 0.70f,
-        val gapMs: Int = 80,
-        val tailScale: Float = 0.40f,
+        val count: Int = 6,
+        val scale: Float = 0.85f,
+        val intervalMs: Int = 35,
     )
 
     /**
@@ -29,22 +37,27 @@ data class HapticTuning(
      */
     data class Paper(
         val count: Int = 5,
-        val scale: Float = 0.55f,
+        val scale: Float = 0.85f,
         val intervalMs: Int = 40,
     )
 
     /** Rocks: medium-density LOW_TICK train (granular crunch). */
     data class Rocks(
         val count: Int = 8,
-        val scale: Float = 0.80f,
+        val scale: Float = 0.98f,
         val intervalMs: Int = 60,
     )
 
-    /** Sand: high-density low-amplitude LOW_TICKs (whispery hiss). */
+    /**
+     * Sand: very-high-density very-low-amplitude LOW_TICKs (whispery hiss).
+     * Tuned down to match the new highpassed/quieted sand foley — sand
+     * should feel almost subliminal under the finger, distinct from rocks
+     * which has weighty impact transients.
+     */
     data class Sand(
-        val count: Int = 16,
-        val scale: Float = 0.35f,
-        val intervalMs: Int = 28,
+        val count: Int = 18,
+        val scale: Float = 0.50f,
+        val intervalMs: Int = 22,
     )
 
     /**
@@ -54,9 +67,9 @@ data class HapticTuning(
      */
     data class Fabric(
         val count: Int = 6,
-        val scale: Float = 0.45f,
+        val scale: Float = 0.75f,
         val intervalMs: Int = 50,
-        val dragTailScale: Float = 0.40f,
+        val dragTailScale: Float = 0.65f,
         val dragTailGapMs: Int = 60,
     )
 
@@ -67,10 +80,10 @@ data class HapticTuning(
      */
     data class Procedural(
         val tickMultiplier: Float = 6f,
-        val baseScale: Float = 0.65f,
+        val baseScale: Float = 0.92f,
         val jitter: Float = 0.1f,
         val intervalMs: Int = 60,
-        val frictionTailScale: Float = 0.55f,
+        val frictionTailScale: Float = 0.80f,
         val frictionTailGapMs: Int = 80,
     )
 }
