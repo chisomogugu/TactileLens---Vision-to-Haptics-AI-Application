@@ -85,6 +85,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.tactilelens.app.data.analysis.U2NetSegmenter
 import com.tactilelens.app.data.model.AnalysisResult
 import com.tactilelens.app.ui.results.ResultsScreen
 import com.tactilelens.app.ui.theme.DeepSpace
@@ -139,6 +143,10 @@ fun ScannerApp(container: AppContainer) {
     var currentScreen by rememberSaveable { mutableStateOf(AppScreen.Scanner) }
     var imageUri by rememberSaveable { mutableStateOf<Uri?>(null) }
     var analysisResult by remember { mutableStateOf<AnalysisResult?>(null) }
+    // Phase 2: U2Net result. Null until segmentation completes; the
+    // scanner reveal animation falls back to mock thermal/depth assets
+    // for the brief window before the model is done.
+    var segmentation by remember { mutableStateOf<U2NetSegmenter.SegmentationResult?>(null) }
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -163,12 +171,28 @@ fun ScannerApp(container: AppContainer) {
     LaunchedEffect(imageUri) {
         val captured = imageUri
         if (captured != null && currentScreen == AppScreen.Scanner) {
-            // Run analysis in parallel with the scan reveal animation; wait
-            // for the longer of the two (the animation is the visible UX,
-            // the analysis is the work). Mock client returns ~1.5 s; the
-            // 7 s minimum keeps the scan reveal feeling complete.
+            // Run analysis + U2Net segmentation in parallel with the scan
+            // reveal animation. Wait for the longer of the two; the 7 s
+            // animation is the visible UX, the rest is background work.
+            // Mock analysis ~1.5 s, U2Net ~50–500 ms (NPU bound).
             coroutineScope {
                 val analysisDeferred = async { container.analysis.analyze(captured) }
+                val segDeferred = async {
+                    runCatching {
+                        withContext(Dispatchers.Default) {
+                            val bm = loadBitmapFromUri(context, captured)
+                                ?: error("could not decode captured photo")
+                            container.segmenter.segment(bm)
+                        }
+                    }.onFailure {
+                        Log.e("TactileLensML", "U2Net segmentation failed", it)
+                    }.getOrNull()
+                }
+                // Surface the segmentation as soon as it's ready so the
+                // scan reveal can swap in the real saliency / cropped
+                // bitmaps mid-animation. Sibling launch in this scope, so
+                // it's automatically cancelled if the LaunchedEffect is.
+                launch { segmentation = segDeferred.await() }
                 delay(7000)
                 analysisResult = analysisDeferred.await()
             }
@@ -202,8 +226,12 @@ fun ScannerApp(container: AppContainer) {
             imageUri = imageUri,
             hasCameraPermission = hasCameraPermission,
             imageCapture = imageCapture,
+            segmentation = segmentation,
             onCapture = { takePicture() },
-            onClearImage = { imageUri = null }
+            onClearImage = {
+                imageUri = null
+                segmentation = null
+            },
         )
     } else {
         val result = analysisResult
@@ -212,6 +240,7 @@ fun ScannerApp(container: AppContainer) {
             // treat back as a hard reset to scanner.
             currentScreen = AppScreen.Scanner
             imageUri = null
+            segmentation = null
         } else {
             ResultsScreen(
                 imageUri = imageUri,
@@ -221,7 +250,8 @@ fun ScannerApp(container: AppContainer) {
                     currentScreen = AppScreen.Scanner
                     imageUri = null
                     analysisResult = null
-                }
+                    segmentation = null
+                },
             )
         }
     }
@@ -232,8 +262,9 @@ private fun ScannerScreen(
     imageUri: Uri?,
     hasCameraPermission: Boolean,
     imageCapture: ImageCapture,
+    segmentation: U2NetSegmenter.SegmentationResult?,
     onCapture: () -> Unit,
-    onClearImage: () -> Unit
+    onClearImage: () -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -294,32 +325,45 @@ private fun ScannerScreen(
                     if (imageUri != null) {
                         val context = LocalContext.current
                         val imageBitmap by rememberLoadedBitmap(context, imageUri)
-                        
-                        // Load mock data images from assets
-                        val thermalBitmap by produceState<ImageBitmap?>(initialValue = null) {
+
+                        // Mock thermal/depth assets: kept as fallback for the
+                        // brief window before U2Net inference completes (and
+                        // for devices where the segmenter fails to load).
+                        val mockThermal by produceState<ImageBitmap?>(initialValue = null) {
                             value = loadBitmapFromAssets(context, "thermal_map.png")?.asImageBitmap()
                         }
-                        val depthBitmap by produceState<ImageBitmap?>(initialValue = null) {
+                        val mockDepth by produceState<ImageBitmap?>(initialValue = null) {
                             value = loadBitmapFromAssets(context, "depth_wireframe.png")?.asImageBitmap()
                         }
 
-                        val tBitmap = thermalBitmap
-                        val dBitmap = depthBitmap
+                        // Real U2Net output, when available. Recomputed when
+                        // the segmentation result lands (keyed on the result
+                        // identity so we only convert each bitmap once).
+                        val saliencyImg by produceState<ImageBitmap?>(initialValue = null, key1 = segmentation) {
+                            value = segmentation?.saliency?.asImageBitmap()
+                        }
+                        val croppedImg by produceState<ImageBitmap?>(initialValue = null, key1 = segmentation) {
+                            value = segmentation?.cropped?.asImageBitmap()
+                        }
+
+                        // Prefer real model output, fall back to mock assets.
+                        val thermalBitmap = saliencyImg ?: mockThermal
+                        val depthBitmap = croppedImg ?: mockDepth
 
                         if (imageBitmap != null) {
-                            if (tBitmap != null && dBitmap != null) {
+                            if (thermalBitmap != null && depthBitmap != null) {
                                 ScannerRevealEffect(
                                     originalBitmap = imageBitmap!!,
-                                    thermalBitmap = tBitmap,
-                                    depthBitmap = dBitmap,
-                                    modifier = Modifier.fillMaxSize()
+                                    thermalBitmap = thermalBitmap,
+                                    depthBitmap = depthBitmap,
+                                    modifier = Modifier.fillMaxSize(),
                                 )
                             } else {
                                 Image(
                                     bitmap = imageBitmap!!,
                                     contentDescription = "Captured image",
                                     modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
+                                    contentScale = ContentScale.Crop,
                                 )
                                 ScannerOverlay(active = true)
                             }
@@ -655,8 +699,9 @@ private fun ScannerPreview() {
             imageUri = null,
             hasCameraPermission = true,
             imageCapture = ImageCapture.Builder().build(),
+            segmentation = null,
             onCapture = {},
-            onClearImage = {}
+            onClearImage = {},
         )
     }
 }
