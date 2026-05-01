@@ -1,20 +1,23 @@
 # Audio Source Provenance
 
-## Current state (2026-05-01)
+## Current state (2026-04-30, hackathon Day 1)
 
-| Material | File | Status | Source |
-| --- | --- | --- | --- |
-| Sand | `sand/loop.wav` | Real | freesound community pack `freesound_community-sand-various-68938.mp3`, offset 36 s, ffmpeg-processed (compressor + alimiter + loudnorm + 150 ms fades) to 3 s mono 44.1 kHz 16-bit PCM. CC0. |
-| Wood | `wood/loop.wav` | **Placeholder (copy of sand)** | Source TBD. Strongest curated lead: `https://freesound.org/people/RutgerMuller/sounds/104013/` (Wood Plank Scraping Close-Mic Long, CC0, 4 s, stereo XY). |
-| Glass | `glass/loop.wav` | **Placeholder (copy of sand)** | Source TBD. Curated leads: `https://freesound.org/people/mickdow/sounds/320912/` (Squeak Finger on Glass) or `https://freesound.org/people/ani_music/sounds/198403/` (Wine glass Rubbing 1a, sustained ring). |
-| Rocks | `rocks/loop.wav` | **Placeholder (copy of sand)** | Source TBD. Curated lead: `https://freesound.org/people/alegemaate/sounds/364687/` (Gravel being disturbed, hand running through gravel). |
-| Fabric | `fabric/loop.wav` | **Placeholder (copy of sand)** | Source TBD. Search foley libraries for "cloth drag", "fabric rustle", "denim slide", "knit scrape". CC0 leads on freesound: search for `tag:cloth tag:rub`, `tag:fabric tag:scrape`, or `tag:textile`. Avoid clips with internal silence; pick a single continuous-gesture take. |
+All five materials now ship with distinct real foley clips, each ffmpeg-processed
+to 3 s mono 44.1 kHz 16-bit PCM via the project recipe (compressor + alimiter +
+loudnorm + 150 ms fades). All clips are CC0 licensed.
 
-## Why placeholders for wood / glass / rocks
+| Material | File | Source |
+| --- | --- | --- |
+| Sand   | `sand/loop.wav`   | freesound community pack `freesound_community-sand-various-68938.mp3`, offset 36 s. |
+| Wood   | `wood/loop.wav`   | `https://freesound.org/people/RutgerMuller/sounds/104013/` (Wood Plank Scraping Close-Mic Long, 4.14 s), offset 0.5 s. CDN preview: `https://cdn.freesound.org/previews/104/104013_179538-hq.mp3`. |
+| Glass  | `glass/loop.wav`  | `https://freesound.org/people/ani_music/sounds/198403/` (Wine glass Rubbing 1a, 3.15 s sustained ring), offset 0.05 s. CDN preview: `https://cdn.freesound.org/previews/198/198403_3008343-hq.mp3`. |
+| Rocks  | `rocks/loop.wav`  | `https://freesound.org/people/alegemaate/sounds/364687/` (Gravel being disturbed, 4.47 s), offset 0.5 s. CDN preview: `https://cdn.freesound.org/previews/364/364687_2531187-hq.mp3`. |
+| Fabric | `fabric/loop.wav` | `https://freesound.org/people/Sonicquinn/sounds/435830/` (Fabric-Sofa-Rubbing-Movements_Mono_192000, 68.5 s), offset 30 s (middle of clip, uniform rubbing region). CDN preview: `https://cdn.freesound.org/previews/435/435830_8913961-hq.mp3`. |
 
-The `SamplePackAudioRenderer` requires a `loop.wav` in each material's asset folder or the engine logs a warning and renders silence for that material. To make the material picker dropdown demoable end-to-end without sound dropouts, all four materials currently load the sand loop as their audio source. The haptic recipes are still per-material distinct, so switching materials in the dropdown produces different vibration even though audio sounds the same.
-
-When real wood / glass / rocks loops are sourced, drop the WAV at `app/src/main/assets/audio/<material>/loop.wav` and rebuild. No code change needed.
+The CDN preview URLs are publicly fetchable and match what the freesound web
+player serves to its `<audio>` tag — they are how this build was sourced. For
+higher-fidelity replacements, log into freesound and download the original WAV
+from the page link, then re-run the ffmpeg recipe below.
 
 ## ffmpeg recipe to reuse
 
