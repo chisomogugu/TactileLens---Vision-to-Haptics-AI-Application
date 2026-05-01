@@ -19,7 +19,7 @@ class AppContainer(context: Context) {
 
     val audio: AudioRenderer = SamplePackAudioRenderer(context)
     val haptic: HapticRenderer = CompositionHapticRenderer(context)
-    val analysis: AnalysisClient = MockAnalysisClient(context)
+    val analysis: AnalysisClient = RealAnalysisClient(context)
 
     fun start() {
         audio.start()

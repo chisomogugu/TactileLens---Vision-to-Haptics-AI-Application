@@ -1,4 +1,4 @@
-package com.example.tactilelens.inference
+package com.tactilelens.app.inference
 
 import android.content.Context
 import android.graphics.Bitmap

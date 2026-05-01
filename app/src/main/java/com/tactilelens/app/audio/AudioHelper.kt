@@ -1,4 +1,4 @@
-package com.example.tactilelens.audio
+package com.tactilelens.app.audio
 
 import android.media.AudioAttributes
 import android.media.AudioFormat

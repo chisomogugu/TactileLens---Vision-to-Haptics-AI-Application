@@ -1,4 +1,4 @@
-package com.example.tactilelens.haptics
+package com.tactilelens.app.haptics
 
 import android.content.Context
 import android.os.Build
