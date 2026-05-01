@@ -56,6 +56,12 @@ class MockAnalysisClient(@Suppress("UNUSED_PARAMETER") context: Context) : Analy
             confidence = 0.88f,
             label = "sand",
         )
+        Material.FABRIC -> AnalysisResult(
+            axes = TextureAxes(roughness = 0.40f, flatBumpy = 0.20f, friction = 0.75f, hardness = 0.15f),
+            material = Material.FABRIC,
+            confidence = 0.85f,
+            label = "knitted",
+        )
         null -> AnalysisResult(
             axes = TextureAxes.Neutral,
             material = null,
@@ -70,6 +76,7 @@ class MockAnalysisClient(@Suppress("UNUSED_PARAMETER") context: Context) : Analy
             Material.WOOD,
             Material.GLASS,
             Material.ROCKS,
+            Material.FABRIC,
         )
     }
 }

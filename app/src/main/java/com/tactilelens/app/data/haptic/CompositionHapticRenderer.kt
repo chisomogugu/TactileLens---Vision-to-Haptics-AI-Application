@@ -67,6 +67,7 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
             Material.GLASS -> glassRecipe(velocityScale)
             Material.ROCKS -> rocksRecipe(velocityScale)
             Material.SAND -> sandRecipe(velocityScale)
+            Material.FABRIC -> fabricRecipe(velocityScale)
             null -> proceduralRecipe(axes, velocityScale)
         }
         vibrator.vibrate(effect)
@@ -118,6 +119,7 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
         Material.GLASS -> PRIMITIVE_TICK to 0.45f
         Material.ROCKS -> PRIMITIVE_LOW_TICK to 0.55f
         Material.SAND -> PRIMITIVE_LOW_TICK to 0.45f
+        Material.FABRIC -> PRIMITIVE_LOW_TICK to 0.30f
         null -> proceduralSwipeShape(axes)
     }
 
@@ -176,6 +178,27 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
         repeat(count) { i ->
             comp.addPrimitive(PRIMITIVE_LOW_TICK, jitterAmp(baseAmp), if (i == 0) 0 else cfg.intervalMs)
         }
+        return comp.compose()
+    }
+
+    /**
+     * Fabric: mid-density LOW_TICK weave with a SLOW_RISE drag-out tail.
+     * Communicates "soft scratchy buzz then sustained drag" — distinct from
+     * sand (denser, no tail) and rocks (sparser, much louder).
+     */
+    private fun fabricRecipe(scale: Float): VibrationEffect {
+        val cfg = tuning.fabric
+        val comp = VibrationEffect.startComposition()
+        val count = cfg.count.coerceAtLeast(1)
+        val baseAmp = (cfg.scale * scale).coerceIn(0f, 1f)
+        repeat(count) { i ->
+            comp.addPrimitive(PRIMITIVE_LOW_TICK, jitterAmp(baseAmp), if (i == 0) 0 else cfg.intervalMs)
+        }
+        comp.addPrimitive(
+            PRIMITIVE_SLOW_RISE,
+            (cfg.dragTailScale * scale).coerceIn(0.01f, 1f),
+            cfg.dragTailGapMs,
+        )
         return comp.compose()
     }
 

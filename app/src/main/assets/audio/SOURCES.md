@@ -8,6 +8,7 @@
 | Wood | `wood/loop.wav` | **Placeholder (copy of sand)** | Source TBD. Strongest curated lead: `https://freesound.org/people/RutgerMuller/sounds/104013/` (Wood Plank Scraping Close-Mic Long, CC0, 4 s, stereo XY). |
 | Glass | `glass/loop.wav` | **Placeholder (copy of sand)** | Source TBD. Curated leads: `https://freesound.org/people/mickdow/sounds/320912/` (Squeak Finger on Glass) or `https://freesound.org/people/ani_music/sounds/198403/` (Wine glass Rubbing 1a, sustained ring). |
 | Rocks | `rocks/loop.wav` | **Placeholder (copy of sand)** | Source TBD. Curated lead: `https://freesound.org/people/alegemaate/sounds/364687/` (Gravel being disturbed, hand running through gravel). |
+| Fabric | `fabric/loop.wav` | **Placeholder (copy of sand)** | Source TBD. Search foley libraries for "cloth drag", "fabric rustle", "denim slide", "knit scrape". CC0 leads on freesound: search for `tag:cloth tag:rub`, `tag:fabric tag:scrape`, or `tag:textile`. Avoid clips with internal silence; pick a single continuous-gesture take. |
 
 ## Why placeholders for wood / glass / rocks
 

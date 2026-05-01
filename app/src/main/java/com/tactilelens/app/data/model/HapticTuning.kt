@@ -13,6 +13,7 @@ data class HapticTuning(
     val glass: Glass = Glass(),
     val rocks: Rocks = Rocks(),
     val sand: Sand = Sand(),
+    val fabric: Fabric = Fabric(),
     val procedural: Procedural = Procedural(),
 ) {
     /** Wood: warm THUD then quieter TICK tail (knock + ring-out). */
@@ -41,6 +42,19 @@ data class HapticTuning(
         val count: Int = 16,
         val scale: Float = 0.25f,
         val intervalMs: Int = 28,
+    )
+
+    /**
+     * Fabric: mid-density LOW_TICKs followed by a SLOW_RISE drag-out
+     * (soft weave + draggy textile character). Sits between sand (denser,
+     * quieter, gritty) and rocks (sparser, louder, granular).
+     */
+    data class Fabric(
+        val count: Int = 6,
+        val scale: Float = 0.30f,
+        val intervalMs: Int = 50,
+        val dragTailScale: Float = 0.30f,
+        val dragTailGapMs: Int = 60,
     )
 
     /**

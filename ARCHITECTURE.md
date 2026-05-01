@@ -28,7 +28,7 @@ These are non-negotiable. They exist to keep the code separable, testable, and f
 2. **Interface-driven at the boundary.** `AudioRenderer`, `HapticRenderer`, and `AnalysisClient` are interfaces. Concrete impls are pluggable. This is what lets us swap the ML mock for a real client without touching the UI, and what lets us add an axis-driven sample blender behind the existing renderer interface without rewriting `ResultsScreen`.
 3. **Composition root is explicit.** A single `AppContainer` constructed in `MainActivity.onCreate` owns the lifecycle of renderers and clients. ViewModels receive it via constructor argument. There is no service locator, no global, no DI framework. For a hackathon-scale app, plain constructor wiring is the right amount of structure.
 4. **The grid is the UX surface, not an animation.** Touch events on the grid produce typed events (`onDotCross(velocity)`). The grid composable does the spatial detection and throttling; the renderer does the sound/feedback. Spatial logic stays in UI; rendering logic stays in `data/`.
-5. **Material-or-axes routing.** When `AnalysisResult.material` is one of the four canonical values, the polished hand-tuned path runs. When it is null, the axis-driven procedural path runs. This single null-check is the entire branching logic for the dynamic-material story.
+5. **Material-or-axes routing.** When `AnalysisResult.material` is one of the five canonical values (WOOD / GLASS / ROCKS / SAND / FABRIC), the polished hand-tuned path runs. When it is null, the axis-driven procedural path runs. This single null-check is the entire branching logic for the dynamic-material story.
 6. **No spec-implementation drift.** The five-knob audio constants and per-material haptic recipes live in source as named constants and `HapticTuning` data classes. Tuning rounds update those constants directly, not a separate config file. When the team agrees on values at the venue, those values are the values; they are checked into git.
 
 ---
@@ -50,7 +50,7 @@ com.tactilelens.app/
 │   │   ├── AnalysisClient.kt              Interface. suspend analyze(uri: Uri): AnalysisResult.
 │   │   └── MockAnalysisClient.kt          Today's impl. Cycles through canonical materials.
 │   └── model/
-│       ├── Material.kt                    enum WOOD/GLASS/ROCKS/SAND. Null = open vocabulary.
+│       ├── Material.kt                    enum WOOD/GLASS/ROCKS/SAND/FABRIC. Null = open vocabulary.
 │       ├── TextureAxes.kt                 roughness, flatBumpy, friction, hardness in [0, 1].
 │       ├── HapticTuning.kt                Per-material tunable knobs. @Volatile mutable at runtime.
 │       ├── HapticRecipe.kt                Wire format for future ML output. Documented hook, not yet wired.
@@ -106,12 +106,12 @@ data class TextureAxes(
     val hardness: Float,        // soft (0) to hard (1)
 )
 
-enum class Material { WOOD, GLASS, ROCKS, SAND }
+enum class Material { WOOD, GLASS, ROCKS, SAND, FABRIC }
 ```
 
 The `material: Material?` nullability is the central architectural fork. It carries the load of the entire dynamic-material story:
 
-- **Non-null** means ML is confident this is one of the four canonical materials. The polished hand-tuned recipe path runs. Audio plays the curated sample loop; haptic fires the per-material signature on touch-down and the per-material drag stream during swipes.
+- **Non-null** means ML is confident this is one of the five canonical materials. The polished hand-tuned recipe path runs. Audio plays the curated sample loop; haptic fires the per-material signature on touch-down and the per-material drag stream during swipes.
 - **Null** means ML is not confident, OR the photo is of something outside the canonical set (a brick, a sweater, leather, anything). The axis-driven procedural path runs. Audio plays an axis-driven blend over a small archetype loop bank. Haptic fires the procedural recipe driven by axis values, with per-tick amplitude jitter and 1D-frequency-axis primitive selection.
 
 `HapticRecipe` (a `List<HapticPrimitive>` wire format) is preserved in the model layer as a documented future hook. The `play(recipe)` method on `HapticRenderer` is the entry point. Neither is wired into the runtime today. This exists so that when the ML team migrates to wire format B (emitting primitive sequences directly), the migration is a one-call swap on the renderer, not a model-layer rewrite.
@@ -186,6 +186,7 @@ The two-mode design exists because Composition primitives have intrinsic duratio
 | Glass | `CLICK 0.85 + 60 ms + TICK 0.40` | `TICK` | 0.45 |
 | Rocks | `8x LOW_TICK 0.65 @ 60 ms` | `LOW_TICK` | 0.55 |
 | Sand | `16x LOW_TICK 0.25 @ 28 ms` | `LOW_TICK` | 0.45 |
+| Fabric | `6x LOW_TICK 0.30 @ 50 ms + SLOW_RISE 0.30 @ 60 ms` | `LOW_TICK` | 0.30 |
 
 These values were tuned on the S25 Ultra in prior sessions and survived multiple iterations. Treat them as the starting line for further venue tuning, not as the final spec. They live in `HapticTuning.kt` as `data class` defaults; the per-material `swipeShape()` function in the renderer reads the primitive-and-amp values.
 
@@ -246,6 +247,7 @@ Dot spacing is a function of the active material. The visual grid encodes the su
 | --- | --- | --- |
 | SAND | ~30 px | Dense, fine grit |
 | GLASS | ~40 px | Medium-dense, smooth |
+| FABRIC | ~50 px | Fine weave, between glass and wood |
 | WOOD | ~60 px | Medium, warm contact |
 | ROCKS | ~100 px | Sparse, big bumps |
 | Null (axis-driven) | `60 - roughness * 30` px | Rough → dense |
