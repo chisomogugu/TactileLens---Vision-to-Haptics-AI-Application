@@ -23,7 +23,10 @@ class MockAnalysisClient(@Suppress("UNUSED_PARAMETER") context: Context) : Analy
 
     private var counter: Int = 0
 
-    override suspend fun analyze(uri: Uri): AnalysisResult {
+    override suspend fun analyze(
+        uri: Uri,
+        precomputed: U2NetSegmenter.SegmentationResult?,
+    ): AnalysisResult {
         delay(MOCK_LATENCY_MS)
         val material = MATERIAL_CYCLE[counter % MATERIAL_CYCLE.size]
         counter++

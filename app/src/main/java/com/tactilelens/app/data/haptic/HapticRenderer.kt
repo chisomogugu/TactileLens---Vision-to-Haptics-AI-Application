@@ -14,12 +14,22 @@ import com.tactilelens.app.data.model.TextureAxes
  *    timer). Plays one primitive per call. The grid composable owns spatial
  *    detection and throttling; the renderer plays what it is asked to play.
  *
+ * The optional [primitiveWeights] on [onGestureStart] is the ML pipeline's
+ * 8-element `map_primitives()` vector. It drives the null-material gesture
+ * stamp per locked decision Q7-B (open-vocabulary surfaces). Canonical
+ * materials and the drag stream ignore it.
+ *
  * [play] is a documented future hook for wire format B (ML emits primitive
  * sequences directly). v1 does not wire it in.
  */
 interface HapticRenderer {
     fun setEnabled(enabled: Boolean)
-    fun onGestureStart(material: Material?, axes: TextureAxes, velocity: Float)
+    fun onGestureStart(
+        material: Material?,
+        axes: TextureAxes,
+        velocity: Float,
+        primitiveWeights: FloatArray? = null,
+    )
     fun onSwipeMove(material: Material?, axes: TextureAxes, velocity: Float)
     fun onSwipeEnd()
     fun play(recipe: HapticRecipe)

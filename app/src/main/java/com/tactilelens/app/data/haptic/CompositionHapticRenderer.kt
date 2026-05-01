@@ -4,8 +4,10 @@ import android.content.Context
 import android.os.VibrationEffect
 import android.os.VibrationEffect.Composition.PRIMITIVE_CLICK
 import android.os.VibrationEffect.Composition.PRIMITIVE_LOW_TICK
+import android.os.VibrationEffect.Composition.PRIMITIVE_QUICK_FALL
 import android.os.VibrationEffect.Composition.PRIMITIVE_QUICK_RISE
 import android.os.VibrationEffect.Composition.PRIMITIVE_SLOW_RISE
+import android.os.VibrationEffect.Composition.PRIMITIVE_SPIN
 import android.os.VibrationEffect.Composition.PRIMITIVE_THUD
 import android.os.VibrationEffect.Composition.PRIMITIVE_TICK
 import android.os.Vibrator
@@ -60,7 +62,12 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
         this.enabled = enabled
     }
 
-    override fun onGestureStart(material: Material?, axes: TextureAxes, velocity: Float) {
+    override fun onGestureStart(
+        material: Material?,
+        axes: TextureAxes,
+        velocity: Float,
+        primitiveWeights: FloatArray?,
+    ) {
         if (!enabled || vibrator == null) return
         val velocityScale = (0.5f + velocity.coerceIn(0f, 1f) * 0.5f)
         val effect = when (material) {
@@ -70,7 +77,13 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
             Material.SAND -> sandRecipe(velocityScale)
             Material.FABRIC -> fabricRecipe(velocityScale)
             Material.GLASS -> proceduralRecipe(axes, velocityScale)  // Phase 6: glassRecipe()
-            null -> proceduralRecipe(axes, velocityScale)
+            // Open-vocabulary path. Locked decision Q7-B: when the ML pipeline
+            // produced an 8-vector signature use it as the gesture stamp;
+            // otherwise fall back to the axis-driven procedural recipe so
+            // canonical-weight-only callers (mock, dropdown override to null)
+            // still feel something.
+            null -> primitiveWeights?.let { mlPrimitiveRecipe(it, velocityScale) }
+                ?: proceduralRecipe(axes, velocityScale)
         }
         vibrator.vibrate(effect)
     }
@@ -290,6 +303,37 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
     }
 
     /**
+     * ML null-path gesture stamp. Plays the 8-element `map_primitives()`
+     * vector as a single Composition fired on touch-down — the open-
+     * vocabulary equivalent of a per-material signature recipe. Per locked
+     * decision Q7-B; canonical materials and the drag stream do not consume
+     * this. Primitives below a 0.05 amplitude floor are dropped to avoid
+     * inaudible micro-events; if every primitive falls under the floor the
+     * single strongest one is added so `compose()` doesn't see an empty
+     * composition (which throws).
+     */
+    private fun mlPrimitiveRecipe(weights: FloatArray, scale: Float): VibrationEffect {
+        require(weights.size == ML_PRIMITIVES.size) {
+            "primitiveWeights must have ${ML_PRIMITIVES.size} entries, got ${weights.size}"
+        }
+        val comp = VibrationEffect.startComposition()
+        var added = 0
+        for (i in ML_PRIMITIVES.indices) {
+            val amp = (weights[i] * scale).coerceIn(0.01f, 1.0f)
+            if (amp > 0.05f) {
+                comp.addPrimitive(ML_PRIMITIVES[i], amp, 0)
+                added++
+            }
+        }
+        if (added == 0) {
+            val maxIdx = weights.indices.maxBy { weights[it] }
+            val amp = (weights[maxIdx] * scale).coerceIn(0.01f, 1.0f)
+            comp.addPrimitive(ML_PRIMITIVES[maxIdx], amp, 0)
+        }
+        return comp.compose()
+    }
+
+    /**
      * Procedural recipe (axes drive everything). Wobble-pattern amplitude
      * jitter on each tick. 1D-frequency-axis primitive selection. Adds a
      * SLOW_RISE friction-tail when friction > 0.5.
@@ -334,5 +378,21 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
 
     private companion object {
         private const val TAG = "TactileLensHaptic"
+
+        /**
+         * Primitive order MUST match `PrimitiveMapper.map(...)`'s output:
+         *   [0] TICK, [1] LOW_TICK, [2] CLICK, [3] THUD,
+         *   [4] SLOW_RISE, [5] QUICK_RISE, [6] QUICK_FALL, [7] SPIN.
+         */
+        private val ML_PRIMITIVES = intArrayOf(
+            PRIMITIVE_TICK,
+            PRIMITIVE_LOW_TICK,
+            PRIMITIVE_CLICK,
+            PRIMITIVE_THUD,
+            PRIMITIVE_SLOW_RISE,
+            PRIMITIVE_QUICK_RISE,
+            PRIMITIVE_QUICK_FALL,
+            PRIMITIVE_SPIN,
+        )
     }
 }

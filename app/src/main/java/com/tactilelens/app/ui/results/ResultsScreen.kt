@@ -97,10 +97,17 @@ fun ResultsScreen(
     var menuExpanded by remember { mutableStateOf(false) }
 
     // Push state to renderers whenever the user picks a different material.
+    // primitiveWeights is the ML pipeline's open-vocab signature; the renderer
+    // only consumes it on the null-material path (Q7-B).
     LaunchedEffect(currentMaterial, axes) {
         container.audio.setMaterial(currentMaterial)
         container.audio.setAxes(axes)
-        container.haptic.onGestureStart(currentMaterial, axes, velocity = 0.6f)
+        container.haptic.onGestureStart(
+            material = currentMaterial,
+            axes = axes,
+            velocity = 0.6f,
+            primitiveWeights = analysisResult.primitiveWeights,
+        )
     }
 
     // Clear renderer material on exit so the audio stream goes silent if

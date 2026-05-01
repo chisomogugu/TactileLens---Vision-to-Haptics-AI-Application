@@ -171,17 +171,19 @@ fun ScannerApp(container: AppContainer) {
     LaunchedEffect(imageUri) {
         val captured = imageUri
         if (captured != null && currentScreen == AppScreen.Scanner) {
-            // Run analysis + U2Net segmentation in parallel with the scan
-            // reveal animation. Wait for the longer of the two; the 7 s
-            // animation is the visible UX, the rest is background work.
-            // Mock analysis ~1.5 s, U2Net ~50–500 ms (NPU bound).
+            // Two-stage pipeline:
+            //   1. Run U2Net first (NPU, ~8 ms) so the reveal animation
+            //      mounts as soon as the saliency / mask / cropped bitmaps
+            //      are available. While in flight the scanner shows the
+            //      captured photo + basic ScannerOverlay sweep.
+            //   2. Hand the segmentation off to the analysis client to
+            //      avoid running U2Net a second time. The encoder + head
+            //      run inside analyze().
+            // The 2.6 s delay matches ScannerRevealEffect's 3 x 0.8 s
+            // passes plus a small buffer; ML pipeline finishes well inside
+            // it on the S25 Ultra.
             coroutineScope {
-                val analysisDeferred = async { container.analysis.analyze(captured) }
-                // Run U2Net first so the reveal mounts only after the
-                // real saliency / cropped bitmaps are available. No mock
-                // fallback any more; while segmentation is in flight the
-                // scanner shows the captured photo + a basic sweep.
-                segmentation = withContext(Dispatchers.Default) {
+                val seg = withContext(Dispatchers.Default) {
                     runCatching {
                         val bm = loadBitmapFromUri(context, captured)
                             ?: error("could not decode captured photo")
@@ -190,23 +192,12 @@ fun ScannerApp(container: AppContainer) {
                         Log.e("TactileLensML", "U2Net segmentation failed", it)
                     }.getOrNull()
                 }
-                // Reveal animation budget: matches ScannerRevealEffect's
-                // 3 x 0.8 s passes plus a small buffer. Used to be 7 s
-                // when ML was mocked; with NPU inference at ~8 ms the
-                // full pipeline pace is set by this animation.
+                segmentation = seg
+                val analysisDeferred = async(Dispatchers.Default) {
+                    container.analysis.analyze(captured, seg)
+                }
                 delay(2600)
-                val mockBased = analysisDeferred.await()
-                // Until Phase 4's LiteRTAnalysisClient lands, the texture
-                // axes + material come from the mock. Override the metadata
-                // fields so the latency pill on the Results screen reports
-                // real numbers from the U2Net pass — that's the only stage
-                // we actually run on real ML right now.
-                analysisResult = segmentation?.let { seg ->
-                    mockBased.copy(
-                        backendLabel = "U2Net: ${container.segmenter.backendLabel}",
-                        inferenceLatencyMs = seg.inferenceMs,
-                    )
-                } ?: mockBased
+                analysisResult = analysisDeferred.await()
             }
             currentScreen = AppScreen.Results
         }
