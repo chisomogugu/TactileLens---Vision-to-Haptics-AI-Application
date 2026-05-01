@@ -20,6 +20,6 @@ import com.tactilelens.app.data.model.AnalysisResult
 interface AnalysisClient {
     suspend fun analyze(
         uri: Uri,
-        precomputed: U2NetSegmenter.SegmentationResult? = null,
+        precomputed: SegmentationResult? = null,
     ): AnalysisResult
 }

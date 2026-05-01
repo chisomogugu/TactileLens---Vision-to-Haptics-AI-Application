@@ -26,7 +26,7 @@ import java.io.Closeable
  *
  * The [U2NetSegmenter] is shared with the UI (passed in via [AppContainer]).
  * If the caller already segmented the photo for the scanner reveal, they can
- * pass that [U2NetSegmenter.SegmentationResult] into [analyze] to skip a second
+ * pass that [SegmentationResult] into [analyze] to skip a second
  * NPU run. Otherwise this client segments internally.
  *
  * Encoder TFLite is `assets/efficientnet_lite0.tflite` — AI Hub-compiled fp32
@@ -38,7 +38,7 @@ import java.io.Closeable
  */
 class LiteRTAnalysisClient(
     private val context: Context,
-    private val segmenter: U2NetSegmenter,
+    private val segmenter: Segmenter,
 ) : AnalysisClient, Closeable {
 
     private val encoder: LiteRTSession = LiteRTSession(context, ENCODER_ASSET)
@@ -57,7 +57,7 @@ class LiteRTAnalysisClient(
 
     override suspend fun analyze(
         uri: Uri,
-        precomputed: U2NetSegmenter.SegmentationResult?,
+        precomputed: SegmentationResult?,
     ): AnalysisResult {
         val sourceBitmap = loadBitmapFromUri(uri)
             ?: return failureFallback("could not decode bitmap")
@@ -70,17 +70,33 @@ class LiteRTAnalysisClient(
         val segmentation = precomputed ?: segmenter.segment(photo)
         val segmentationMs = segmentation.inferenceMs
 
-        // Crop the ORIGINAL photo to the bbox (we want raw photo content for
-        // the encoder, not the masked-out cropped bitmap which has the
-        // background filled with DeepSpace). Resize to 224x224 with bilinear.
-        val bbox = segmentation.bbox
-        val safeBbox = clampBbox(bbox, photo.width, photo.height)
+        // SAM bbox = the OBJECT under the tap (e.g. one rock from a pile).
+        // For texture analysis we want a representative TEXTURE PATCH, not
+        // a precise object cutout. So: take a fixed-size square centered
+        // on the SAM bbox center. Captures the surrounding context — for
+        // a rock pile, that's the pile not just one rock; for sand or any
+        // uniform surface, just a clean swatch.
+        // The visual SAM mask still drives the Results-screen photo and
+        // the reveal animation; only the encoder crop is decoupled here.
+        val patchSize = (minOf(photo.width, photo.height) * TEXTURE_PATCH_FRAC).toInt()
+        val centerX = (segmentation.bbox.left + segmentation.bbox.right) / 2
+        val centerY = (segmentation.bbox.top + segmentation.bbox.bottom) / 2
+        val patchBbox = clampBbox(
+            android.graphics.Rect(
+                centerX - patchSize / 2,
+                centerY - patchSize / 2,
+                centerX + patchSize / 2,
+                centerY + patchSize / 2,
+            ),
+            photo.width,
+            photo.height,
+        )
         val cropped = Bitmap.createBitmap(
             photo,
-            safeBbox.left,
-            safeBbox.top,
-            safeBbox.width(),
-            safeBbox.height(),
+            patchBbox.left,
+            patchBbox.top,
+            patchBbox.width(),
+            patchBbox.height(),
         )
         val resized = if (cropped.width == encoderInputSize &&
             cropped.height == encoderInputSize
@@ -100,12 +116,11 @@ class LiteRTAnalysisClient(
         val headMs = (System.nanoTime() - headStartNs) / 1_000_000L
 
         // Output order from `linear_head.onnx`: [rough, hard, friction, density].
-        // Mapping per locked decision Q1-D: density -> flatBumpy.
         val axes = TextureAxes(
             roughness = dims[0],
             hardness = dims[1],
             friction = dims[2],
-            flatBumpy = dims[3],
+            density = dims[3],
         )
 
         val (material, distance) = MaterialCentroids.classify(axes)
@@ -125,12 +140,12 @@ class LiteRTAnalysisClient(
 
         Log.i(
             TAG,
-            "analyze: bbox=$safeBbox segmentation=${segmentationMs}ms " +
+            "analyze: patch=$patchBbox segmentation=${segmentationMs}ms " +
                 "encoder=${encoderMs}ms head=${headMs}ms " +
                 "axes=(r=${"%.2f".format(axes.roughness)}, " +
                 "h=${"%.2f".format(axes.hardness)}, " +
                 "f=${"%.2f".format(axes.friction)}, " +
-                "fb=${"%.2f".format(axes.flatBumpy)}) " +
+                "d=${"%.2f".format(axes.density)}) " +
                 "material=${material?.display ?: "null"} conf=${"%.2f".format(confidence)} " +
                 "backend=$backendLabel",
         )
@@ -238,5 +253,14 @@ class LiteRTAnalysisClient(
         private const val TAG = "TactileLensClient"
         private const val ENCODER_ASSET = "efficientnet_lite0.tflite"
         private const val FEATURE_DIM = 1280
+        /**
+         * Encoder crop = this fraction of min(photo.width, photo.height),
+         * centered on the SAM bbox center. ~30% works well for texture
+         * sampling: large enough to include multiple rocks/grain/threads,
+         * small enough to exclude unrelated background. Tune up if the
+         * encoder feels under-contextualized, down if it picks up too
+         * much off-target content.
+         */
+        private const val TEXTURE_PATCH_FRAC = 0.30f
     }
 }

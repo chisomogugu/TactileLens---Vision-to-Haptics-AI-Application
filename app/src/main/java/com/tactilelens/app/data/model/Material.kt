@@ -12,7 +12,7 @@ package com.tactilelens.app.data.model
  * softer hardness than GLASS, with a distinct crinkling foley character.
  *
  * FABRIC fills the soft + draggy + flat corner of the four-axis space
- * (low hardness, low flatBumpy, high friction) that nothing else covers.
+ * (low hardness, low density, high friction) that nothing else covers.
  * DTD labels `knitted`, `woven`, and `lacy` route here at high confidence.
  *
  * GLASS re-enabled per locked decision Q6-B so the canonical set matches

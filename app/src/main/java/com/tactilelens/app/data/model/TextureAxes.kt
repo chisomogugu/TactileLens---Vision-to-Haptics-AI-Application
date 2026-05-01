@@ -9,7 +9,7 @@ package com.tactilelens.app.data.model
  */
 data class TextureAxes(
     val roughness: Float,
-    val flatBumpy: Float,
+    val density: Float,
     val friction: Float,
     val hardness: Float,
 ) {

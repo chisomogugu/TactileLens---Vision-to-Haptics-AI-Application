@@ -32,6 +32,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -74,6 +75,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -88,14 +91,16 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import com.tactilelens.app.data.analysis.U2NetSegmenter
+import com.tactilelens.app.data.analysis.SegmentationResult
 import com.tactilelens.app.data.model.AnalysisResult
 import com.tactilelens.app.ui.results.ResultsScreen
-import com.tactilelens.app.ui.theme.DeepSpace
-import com.tactilelens.app.ui.theme.GlowCyan
-import com.tactilelens.app.ui.theme.NebulaBlue
-import com.tactilelens.app.ui.theme.VividBlue
-import com.tactilelens.app.ui.theme.TestProjectTheme
+import com.tactilelens.app.ui.theme.Bone
+import com.tactilelens.app.ui.theme.Carbon
+import com.tactilelens.app.ui.theme.Iron
+import com.tactilelens.app.ui.theme.Mercury
+import com.tactilelens.app.ui.theme.Pulse
+import com.tactilelens.app.ui.theme.Slate
+import com.tactilelens.app.ui.theme.TactileLensTheme
 import java.io.File
 import androidx.camera.core.Preview as CameraXPreview
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -113,7 +118,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         appContainer = AppContainer(applicationContext)
         setContent {
-            TestProjectTheme {
+            TactileLensTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -146,7 +151,13 @@ fun ScannerApp(container: AppContainer) {
     // Phase 2: U2Net result. Null until segmentation completes; the
     // scanner reveal animation falls back to mock thermal/depth assets
     // for the brief window before the model is done.
-    var segmentation by remember { mutableStateOf<U2NetSegmenter.SegmentationResult?>(null) }
+    var segmentation by remember { mutableStateOf<SegmentationResult?>(null) }
+    // Normalized [0, 1] tap location on the camera preview at capture time.
+    // Drives U2Net's tap-steering: the connected salient region containing
+    // this point becomes the encoder crop, instead of "whatever U2Net thinks
+    // is salient globally." Null when capture was triggered by the shutter
+    // button (legacy behavior — global saliency still works).
+    var normalizedTap by remember { mutableStateOf<Offset?>(null) }
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -182,12 +193,23 @@ fun ScannerApp(container: AppContainer) {
             // The 2.6 s delay matches ScannerRevealEffect's 3 x 0.8 s
             // passes plus a small buffer; ML pipeline finishes well inside
             // it on the S25 Ultra.
+            // Snapshot tap location into a local val so the closure below
+            // sees a stable value even if state changes during capture.
+            val tapAtCapture = normalizedTap
             coroutineScope {
                 val seg = withContext(Dispatchers.Default) {
                     runCatching {
                         val bm = loadBitmapFromUri(context, captured)
                             ?: error("could not decode captured photo")
-                        container.segmenter.segment(bm)
+                        if (tapAtCapture != null) {
+                            val tapPxX = (tapAtCapture.x * bm.width).toInt()
+                                .coerceIn(0, bm.width - 1)
+                            val tapPxY = (tapAtCapture.y * bm.height).toInt()
+                                .coerceIn(0, bm.height - 1)
+                            container.segmenter.segment(bm, tapPxX, tapPxY)
+                        } else {
+                            container.segmenter.segment(bm)
+                        }
                     }.onFailure {
                         Log.e("TactileLensML", "U2Net segmentation failed", it)
                     }.getOrNull()
@@ -230,10 +252,18 @@ fun ScannerApp(container: AppContainer) {
             hasCameraPermission = hasCameraPermission,
             imageCapture = imageCapture,
             segmentation = segmentation,
-            onCapture = { takePicture() },
+            onCapture = {
+                normalizedTap = null
+                takePicture()
+            },
+            onTapCapture = { nx, ny ->
+                normalizedTap = Offset(nx, ny)
+                takePicture()
+            },
             onClearImage = {
                 imageUri = null
                 segmentation = null
+                normalizedTap = null
             },
         )
     } else {
@@ -247,6 +277,7 @@ fun ScannerApp(container: AppContainer) {
         } else {
             ResultsScreen(
                 imageUri = imageUri,
+                segmentedBitmap = segmentation?.cropped,
                 analysisResult = result,
                 container = container,
                 onBack = {
@@ -265,8 +296,9 @@ private fun ScannerScreen(
     imageUri: Uri?,
     hasCameraPermission: Boolean,
     imageCapture: ImageCapture,
-    segmentation: U2NetSegmenter.SegmentationResult?,
+    segmentation: SegmentationResult?,
     onCapture: () -> Unit,
+    onTapCapture: (normalizedX: Float, normalizedY: Float) -> Unit,
     onClearImage: () -> Unit,
 ) {
     Box(
@@ -275,9 +307,9 @@ private fun ScannerScreen(
             .background(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        DeepSpace,
-                        NebulaBlue.copy(alpha = 0.92f),
-                        Color(0xFF040B12)
+                        Carbon,
+                        Slate,
+                        Carbon
                     )
                 )
             )
@@ -312,7 +344,7 @@ private fun ScannerScreen(
                     .shadow(
                         elevation = 32.dp,
                         shape = RoundedCornerShape(28.dp),
-                        spotColor = VividBlue.copy(alpha = 0.4f)
+                        spotColor = Pulse.copy(alpha = 0.4f)
                     ),
                 colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.03f)),
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
@@ -322,7 +354,7 @@ private fun ScannerScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .clip(RoundedCornerShape(28.dp))
-                        .background(Color(0xFF07131D)),
+                        .background(Slate),
                     contentAlignment = Alignment.Center
                 ) {
                     if (imageUri != null) {
@@ -382,7 +414,42 @@ private fun ScannerScreen(
                         }
                     } else {
                         if (hasCameraPermission) {
-                            CameraPreview(imageCapture = imageCapture, modifier = Modifier.fillMaxSize())
+                            // Live preview is itself the capture surface: tapping
+                            // anywhere fires onTapCapture(normalizedX, normalizedY).
+                            // The shutter button below still works for "no specific
+                            // target" capture (legacy global-saliency path).
+                            var previewSize by remember { mutableStateOf(IntSize.Zero) }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .onSizeChanged { previewSize = it }
+                                    .pointerInput(Unit) {
+                                        detectTapGestures { tap ->
+                                            val w = previewSize.width
+                                            val h = previewSize.height
+                                            if (w > 0 && h > 0) {
+                                                val nx = (tap.x / w).coerceIn(0f, 1f)
+                                                val ny = (tap.y / h).coerceIn(0f, 1f)
+                                                onTapCapture(nx, ny)
+                                            }
+                                        }
+                                    },
+                            ) {
+                                CameraPreview(
+                                    imageCapture = imageCapture,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                                Text(
+                                    text = "TAP TO FEEL",
+                                    color = Color.White.copy(alpha = 0.65f),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 4.sp,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(bottom = 12.dp),
+                                )
+                            }
                         } else {
                             Text(
                                 text = "CAMERA PERMISSION REQUIRED",
@@ -538,7 +605,7 @@ fun ScannerRevealEffect(
         fun drawScanLine(lineY: Float) {
             drawLine(
                 brush = Brush.verticalGradient(
-                    colors = listOf(Color.Transparent, VividBlue, Color.Transparent),
+                    colors = listOf(Color.Transparent, Pulse, Color.Transparent),
                     startY = lineY - 25f, endY = lineY + 25f,
                 ),
                 start = Offset(0f, lineY), end = Offset(width, lineY), strokeWidth = 6f,
@@ -592,7 +659,7 @@ private fun ScannerOverlay(active: Boolean) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val width = size.width
             val height = size.height
-            val frameColor = VividBlue.copy(alpha = 0.9f)
+            val frameColor = Pulse.copy(alpha = 0.9f)
             val dash = PathEffect.dashPathEffect(floatArrayOf(16f, 12f), 0f)
 
             drawRoundRect(
@@ -605,7 +672,7 @@ private fun ScannerOverlay(active: Boolean) {
             )
 
             drawLine(
-                color = VividBlue.copy(alpha = if (active) 0.85f else 0.35f),
+                color = Pulse.copy(alpha = if (active) 0.85f else 0.35f),
                 start = Offset(0f, height * sweep),
                 end = Offset(width, height * sweep),
                 strokeWidth = 6f,
@@ -623,7 +690,7 @@ private fun ScannerOverlay(active: Boolean) {
             Box(
                 modifier = Modifier
                     .size(8.dp)
-                    .background(if (active) VividBlue else Color.White.copy(alpha = 0.45f), CircleShape)
+                    .background(if (active) Pulse else Color.White.copy(alpha = 0.45f), CircleShape)
             )
         }
     }
@@ -653,7 +720,7 @@ private fun AnimatedRadarBackdrop() {
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    VividBlue.copy(alpha = 0.22f),
+                    Pulse.copy(alpha = 0.22f),
                     Color.Transparent
                 ),
                 center = Offset(width * 0.2f, height * (0.15f + 0.1f * drift)),
@@ -666,7 +733,7 @@ private fun AnimatedRadarBackdrop() {
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    VividBlue.copy(alpha = 0.12f),
+                    Pulse.copy(alpha = 0.12f),
                     Color.Transparent
                 ),
                 center = Offset(width * 0.85f, height * 0.74f),
@@ -707,13 +774,14 @@ private fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? {
 @Preview(showBackground = true)
 @Composable
 private fun ScannerPreview() {
-    TestProjectTheme {
+    TactileLensTheme {
         ScannerScreen(
             imageUri = null,
             hasCameraPermission = true,
             imageCapture = ImageCapture.Builder().build(),
             segmentation = null,
             onCapture = {},
+            onTapCapture = { _, _ -> },
             onClearImage = {},
         )
     }

@@ -23,12 +23,10 @@ import com.tactilelens.app.data.model.TextureAxes
 object PrimitiveMapper {
 
     fun map(axes: TextureAxes): FloatArray {
-        // ML team's variable names from map_primitives.py. `density`
-        // corresponds to our `flatBumpy` field per locked decision Q1-D.
         val rough = axes.roughness
         val hard = axes.hardness
         val friction = axes.friction
-        val density = axes.flatBumpy
+        val density = axes.density
 
         val tick      = rough * hard * density
         val lowTick   = rough * (1f - hard) * density
