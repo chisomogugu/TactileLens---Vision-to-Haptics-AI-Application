@@ -119,8 +119,8 @@ fun InteractiveGridZone(
  */
 private fun dotSpacingFor(material: Material?, axes: TextureAxes): Float = when (material) {
     Material.SAND -> 32f      // Dense fine grit
-    Material.GLASS -> 44f     // Medium-dense, smooth
-    Material.FABRIC -> 50f    // Fine weave, between glass and wood
+    Material.PAPER -> 46f     // Medium-dense, smooth with subtle grain
+    Material.FABRIC -> 50f    // Fine weave, between paper and wood
     Material.WOOD -> 64f      // Medium, warm contact
     Material.ROCKS -> 100f    // Sparse, big bumps
     null -> {

@@ -8,14 +8,19 @@ package com.tactilelens.app.data.model
  * procedural path. See ARCHITECTURE.md §4 (data model) and §10 (locked
  * decisions) for the routing fork.
  *
- * FABRIC was added as the 5th canonical to fill the soft + draggy + flat
- * corner of the four-axis space (low hardness, low flatBumpy, high friction)
- * that nothing else covers. DTD labels `knitted`, `woven`, and `lacy` route
- * here at high confidence.
+ * PAPER replaced GLASS as the 5th canonical because the available CC0
+ * glass-rub sources had ambiguous fluty/bell character that did not read
+ * as "glass surface" in listen testing. Paper occupies the same smooth +
+ * flat corner of the axis space at slightly softer hardness, with a
+ * distinct crinkling foley character.
+ *
+ * FABRIC fills the soft + draggy + flat corner of the four-axis space
+ * (low hardness, low flatBumpy, high friction) that nothing else covers.
+ * DTD labels `knitted`, `woven`, and `lacy` route here at high confidence.
  */
 enum class Material(val display: String) {
     WOOD("Wood"),
-    GLASS("Glass"),
+    PAPER("Paper"),
     ROCKS("Rocks"),
     SAND("Sand"),
     FABRIC("Fabric"),

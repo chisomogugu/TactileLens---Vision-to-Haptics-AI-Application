@@ -103,7 +103,7 @@ The team has a pre-hackathon planning doc (`PROJECT_KNOWLEDGE.md`, lives outside
 |---|---|---|
 | Project name | Texture Sense | TactileLens |
 | Package | `com.texturesense` | `com.tactilelens.app` |
-| Demo materials | SANDPAPER / KNIT / BUBBLE_WRAP / MARBLE | WOOD / GLASS / ROCKS / SAND / FABRIC |
+| Demo materials | SANDPAPER / KNIT / BUBBLE_WRAP / MARBLE | WOOD / PAPER / ROCKS / SAND / FABRIC |
 | Audio engine | libpd + Pure Data via Kortholt + Oboe | Sample-pack `AudioTrack` + gain envelope (Option A) |
 | Haptic | Composition primitives + override library + procedural engine | Composition primitives, per-material recipes + procedural fallback (already shipped) |
 | Architecture | 2-layer, interface-first, mocks-first, manual DI | Same — preserved |
@@ -169,7 +169,7 @@ Update this list as questions resolve. Each item names who unblocks it.
 
 - [ ] Does AI Hub host an NPU-ready DTD-trained MobileNet, or do we use ImageNet MobileNet as a placeholder? — **ML 1, by hour 2 of the build.**
 - [ ] What is the final DTD-label → (Material?, axes) lookup table? — **Lead, editorial.**
-- [ ] What is the post-pivot demo-objects list, given the materials are WOOD / GLASS / ROCKS / SAND / FABRIC? Need to bring physical samples for all five (e.g., wood block, glass coaster, gravel/pebble, sand sample, knit scarf). — **Lead, by Day 1 morning at venue.**
+- [ ] What is the post-pivot demo-objects list, given the materials are WOOD / PAPER / ROCKS / SAND / FABRIC? Need to bring physical samples for all five (e.g., wood block, sheet of paper, gravel/pebble, sand sample, knit scarf). — **Lead, by Day 1 morning at venue.**
 
 **Procedural-future (not blocking the hackathon, documented for post-event):**
 

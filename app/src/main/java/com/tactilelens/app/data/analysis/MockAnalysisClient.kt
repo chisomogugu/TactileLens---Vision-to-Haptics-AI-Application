@@ -38,11 +38,11 @@ class MockAnalysisClient(@Suppress("UNUSED_PARAMETER") context: Context) : Analy
             confidence = 0.82f,
             label = "wood",
         )
-        Material.GLASS -> AnalysisResult(
-            axes = TextureAxes(roughness = 0.05f, flatBumpy = 0.05f, friction = 0.10f, hardness = 0.95f),
-            material = Material.GLASS,
-            confidence = 0.91f,
-            label = "glass",
+        Material.PAPER -> AnalysisResult(
+            axes = TextureAxes(roughness = 0.20f, flatBumpy = 0.05f, friction = 0.30f, hardness = 0.40f),
+            material = Material.PAPER,
+            confidence = 0.86f,
+            label = "paper",
         )
         Material.ROCKS -> AnalysisResult(
             axes = TextureAxes(roughness = 0.85f, flatBumpy = 0.85f, friction = 0.55f, hardness = 0.85f),
@@ -74,7 +74,7 @@ class MockAnalysisClient(@Suppress("UNUSED_PARAMETER") context: Context) : Analy
         private val MATERIAL_CYCLE = listOf(
             Material.SAND,
             Material.WOOD,
-            Material.GLASS,
+            Material.PAPER,
             Material.ROCKS,
             Material.FABRIC,
         )

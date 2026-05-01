@@ -64,7 +64,7 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
         val velocityScale = (0.5f + velocity.coerceIn(0f, 1f) * 0.5f)
         val effect = when (material) {
             Material.WOOD -> woodRecipe(velocityScale)
-            Material.GLASS -> glassRecipe(velocityScale)
+            Material.PAPER -> paperRecipe(velocityScale)
             Material.ROCKS -> rocksRecipe(velocityScale)
             Material.SAND -> sandRecipe(velocityScale)
             Material.FABRIC -> fabricRecipe(velocityScale)
@@ -116,7 +116,7 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
      */
     private fun swipeShape(material: Material?, axes: TextureAxes): Pair<Int, Float> = when (material) {
         Material.WOOD -> PRIMITIVE_THUD to 0.75f
-        Material.GLASS -> PRIMITIVE_TICK to 0.60f
+        Material.PAPER -> PRIMITIVE_TICK to 0.55f
         Material.ROCKS -> PRIMITIVE_LOW_TICK to 0.75f
         Material.SAND -> PRIMITIVE_LOW_TICK to 0.60f
         Material.FABRIC -> PRIMITIVE_LOW_TICK to 0.45f
@@ -148,13 +148,16 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
             .compose()
     }
 
-    /** Glass: CLICK + TICK (sharp squeak/snap). */
-    private fun glassRecipe(scale: Float): VibrationEffect {
-        val cfg = tuning.glass
-        return VibrationEffect.startComposition()
-            .addPrimitive(PRIMITIVE_CLICK, (cfg.clickScale * scale).coerceIn(0f, 1f), 0)
-            .addPrimitive(PRIMITIVE_TICK, (cfg.tickScale * scale).coerceIn(0f, 1f), cfg.gapMs)
-            .compose()
+    /** Paper: rapid TICK rustle (mirrors crumpling-paper foley). */
+    private fun paperRecipe(scale: Float): VibrationEffect {
+        val cfg = tuning.paper
+        val comp = VibrationEffect.startComposition()
+        val count = cfg.count.coerceAtLeast(1)
+        val baseAmp = (cfg.scale * scale).coerceIn(0f, 1f)
+        repeat(count) { i ->
+            comp.addPrimitive(PRIMITIVE_TICK, jitterAmp(baseAmp), if (i == 0) 0 else cfg.intervalMs)
+        }
+        return comp.compose()
     }
 
     /** Rocks: N x LOW_TICK at fixed intervals (granular crunch). */

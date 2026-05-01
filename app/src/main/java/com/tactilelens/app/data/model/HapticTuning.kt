@@ -10,7 +10,7 @@ package com.tactilelens.app.data.model
  */
 data class HapticTuning(
     val wood: Wood = Wood(),
-    val glass: Glass = Glass(),
+    val paper: Paper = Paper(),
     val rocks: Rocks = Rocks(),
     val sand: Sand = Sand(),
     val fabric: Fabric = Fabric(),
@@ -23,11 +23,14 @@ data class HapticTuning(
         val tailScale: Float = 0.40f,
     )
 
-    /** Glass: sharp CLICK then short TICK (squeak/snap). */
-    data class Glass(
-        val clickScale: Float = 0.95f,
-        val gapMs: Int = 60,
-        val tickScale: Float = 0.55f,
+    /**
+     * Paper: rapid TICK rustle (mirrors crumpling-paper foley).
+     * Distinct from sand (LOW_TICK whispery) and fabric (LOW_TICK + tail).
+     */
+    data class Paper(
+        val count: Int = 5,
+        val scale: Float = 0.55f,
+        val intervalMs: Int = 40,
     )
 
     /** Rocks: medium-density LOW_TICK train (granular crunch). */

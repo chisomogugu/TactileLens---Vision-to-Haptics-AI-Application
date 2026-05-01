@@ -10,7 +10,7 @@ loudnorm + 150 ms fades). All clips are CC0 licensed.
 | --- | --- | --- |
 | Sand   | `sand/loop.wav`   | freesound community pack `freesound_community-sand-various-68938.mp3`, offset 36 s. |
 | Wood   | `wood/loop.wav`   | `https://freesound.org/people/RutgerMuller/sounds/104013/` (Wood Plank Scraping Close-Mic Long, 4.14 s), offset 0.5 s. CDN preview: `https://cdn.freesound.org/previews/104/104013_179538-hq.mp3`. |
-| Glass  | `glass/loop.wav`  | `https://freesound.org/people/ani_music/sounds/198403/` (Wine glass Rubbing 1a, 3.15 s sustained ring), offset 0.05 s. CDN preview: `https://cdn.freesound.org/previews/198/198403_3008343-hq.mp3`. |
+| Paper  | `paper/loop.wav`  | `https://pixabay.com/sound-effects/crumping-paper-109585/` (liecio — Crumpling Paper, 7.0 s stereo), offset 1.0 s, mixed to mono. Replaced GLASS in the canonical set after fluty wine-glass clips failed listen testing. |
 | Rocks  | `rocks/loop.wav`  | `https://freesound.org/people/alegemaate/sounds/364687/` (Gravel being disturbed, 4.47 s), offset 0.5 s. CDN preview: `https://cdn.freesound.org/previews/364/364687_2531187-hq.mp3`. |
 | Fabric | `fabric/loop.wav` | `https://freesound.org/people/Sonicquinn/sounds/435830/` (Fabric-Sofa-Rubbing-Movements_Mono_192000, 68.5 s), offset 30 s (middle of clip, uniform rubbing region). CDN preview: `https://cdn.freesound.org/previews/435/435830_8913961-hq.mp3`. |
 
