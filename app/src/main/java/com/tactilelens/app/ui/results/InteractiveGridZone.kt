@@ -11,13 +11,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import com.tactilelens.app.data.model.Material
 import com.tactilelens.app.data.model.TextureAxes
-import com.tactilelens.app.ui.theme.GlowCyan
-import com.tactilelens.app.ui.theme.VividBlue
+import com.tactilelens.app.ui.theme.Bone
+import com.tactilelens.app.ui.theme.Pulse
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
@@ -86,22 +85,25 @@ fun InteractiveGridZone(
             val cols = (width / spacingPx).toInt() + 1
             val rows = (height / spacingPx).toInt() + 1
 
+            // Bone dots at low alpha on the Carbon canvas: high enough to read,
+            // low enough that they don't compete with the photo. On touch, the
+            // intensity lerp pulls them up to full Bone and tints toward Pulse
+            // (the live-signal accent) — instrument-grade contrast, no more
+            // blue-on-blue invisibility.
+            val baseDotColor = Bone.copy(alpha = 0.18f)
+            val activeDotColor = Pulse
             for (col in 0..cols) {
                 for (row in 0..rows) {
                     val dotPos = Offset(col * spacingPx, row * spacingPx)
-                    var radius = 4f
-                    var color = VividBlue.copy(alpha = 0.25f)
+                    var radius = 3f
+                    var color = baseDotColor
 
                     touchPosition?.let { touch ->
                         val distance = (dotPos - touch).getDistance()
                         if (distance < interactionRadius) {
                             val intensity = 1f - (distance / interactionRadius)
-                            radius = 4f + (12f * intensity)
-                            color = lerp(
-                                VividBlue.copy(alpha = 0.25f),
-                                GlowCyan,
-                                intensity,
-                            )
+                            radius = 3f + (10f * intensity)
+                            color = lerp(baseDotColor, activeDotColor, intensity)
                         }
                     }
 
