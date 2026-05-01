@@ -14,6 +14,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -44,6 +45,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -173,6 +175,18 @@ fun ScannerApp(container: AppContainer) {
         hasCameraPermission = granted
     }
 
+    // Photo picker. Returns a content:// URI we can feed straight into the
+    // existing `LaunchedEffect(imageUri)` segmentation + analyze pipeline.
+    // No runtime permission needed.
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri: Uri? ->
+        if (uri != null) {
+            normalizedTap = null
+            imageUri = uri
+        }
+    }
+
     LaunchedEffect(Unit) {
         if (!hasCameraPermission) {
             permissionLauncher.launch(Manifest.permission.CAMERA)
@@ -265,6 +279,11 @@ fun ScannerApp(container: AppContainer) {
                 segmentation = null
                 normalizedTap = null
             },
+            onPickFromGallery = {
+                galleryLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            },
         )
     } else {
         val result = analysisResult
@@ -302,6 +321,7 @@ private fun ScannerScreen(
     onCapture: () -> Unit,
     onTapCapture: (normalizedX: Float, normalizedY: Float) -> Unit,
     onClearImage: () -> Unit,
+    onPickFromGallery: () -> Unit = {},
 ) {
     Box(
         modifier = Modifier
@@ -466,26 +486,55 @@ private fun ScannerScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Shutter Button
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(CircleShape)
-                    .background(Color.Transparent)
-                    .border(4.dp, Color.White, CircleShape)
-                    .clickable { 
-                        if (imageUri == null && hasCameraPermission) {
-                            onCapture() 
-                        }
-                    },
-                contentAlignment = Alignment.Center
+            // Shutter row: gallery button on the left, shutter centered.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
             ) {
                 Box(
                     modifier = Modifier
-                        .size(64.dp)
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color.White.copy(alpha = 0.10f))
+                        .border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                        .clickable(enabled = imageUri == null) { onPickFromGallery() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "GALLERY",
+                        color = Color.White,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(24.dp))
+
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
                         .clip(CircleShape)
-                        .background(if (imageUri == null && hasCameraPermission) Color.White else Color.White.copy(alpha = 0.5f))
-                )
+                        .background(Color.Transparent)
+                        .border(4.dp, Color.White, CircleShape)
+                        .clickable {
+                            if (imageUri == null && hasCameraPermission) {
+                                onCapture()
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(if (imageUri == null && hasCameraPermission) Color.White else Color.White.copy(alpha = 0.5f))
+                    )
+                }
+
+                // Right-side spacer to keep the shutter visually centered.
+                Spacer(modifier = Modifier.width(80.dp))
             }
 
             Spacer(modifier = Modifier.height(16.dp))
