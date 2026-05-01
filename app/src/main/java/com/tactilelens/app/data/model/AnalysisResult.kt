@@ -11,7 +11,10 @@ package com.tactilelens.app.data.model
  *  - [label]              Raw DTD class label for display, e.g. "fibrous".
  *  - [backendLabel]       Which delegate executed inference: "NPU", "GPU", "CPU", or "MOCK".
  *                         Drives the persistent latency pill on the Results screen.
- *  - [inferenceLatencyMs] Wall-clock inference time in milliseconds.
+ *  - [inferenceLatencyMs] Classifier wall-clock time in milliseconds
+ *                         (encoder + linear head). Segmenter time is reported
+ *                         separately on `SegmentationResult.inferenceMs` so
+ *                         the two stages don't double-count on the UI.
  *  - [primitiveWeights]   8-element weighted-primitive vector from `map_primitives()`,
  *                         summing to 1.0. Populated by `LiteRTAnalysisClient`. Used by
  *                         the haptic renderer ONLY for the null-material (open-vocab)

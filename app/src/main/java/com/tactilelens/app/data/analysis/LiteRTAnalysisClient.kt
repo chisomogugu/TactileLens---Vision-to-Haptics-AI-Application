@@ -106,10 +106,19 @@ class LiteRTAnalysisClient(
             Bitmap.createScaledBitmap(cropped, encoderInputSize, encoderInputSize, true)
         }
 
-        val input: Any = if (isNchw) bitmapToNchw(resized) else bitmapToNhwc(resized)
+        // Direct ByteBuffer for both input and output. Nested Java arrays
+        // cost tens of ms in JNI marshal alone (the bridge walks each
+        // nested array). A single contiguous direct buffer ships in <5 ms.
+        val inputBuffer = if (isNchw) bitmapToNchwBuffer(resized) else bitmapToNhwcBuffer(resized)
+        val outputBuffer = java.nio.ByteBuffer
+            .allocateDirect(1 * FEATURE_DIM * 4)
+            .order(java.nio.ByteOrder.nativeOrder())
+        val encoderStartNs = System.nanoTime()
+        encoder.run(inputBuffer, outputBuffer)
+        val encoderMs = (System.nanoTime() - encoderStartNs) / 1_000_000L
         val features = Array(1) { FloatArray(FEATURE_DIM) }
-        encoder.run(input, features)
-        val encoderMs = encoder.lastInferenceMs().coerceAtLeast(0L)
+        outputBuffer.rewind()
+        outputBuffer.asFloatBuffer().get(features[0])
 
         val headStartNs = System.nanoTime()
         val dims = head.project(features[0])
@@ -127,7 +136,12 @@ class LiteRTAnalysisClient(
         val confidence = (1f - (distance / MaterialCentroids.CLASSIFICATION_THRESHOLD))
             .coerceIn(0f, 1f)
 
-        val totalMs = segmentationMs + encoderMs + headMs
+        // Classifier-only latency (encoder + head). The segmenter's time
+        // is reported separately on the SEG pill via SegmentationResult.
+        // inferenceMs, so summing it here would double-count it on the
+        // CLF pill.
+        val classifierMs = encoderMs + headMs
+        val totalMs = segmentationMs + classifierMs
         val backendLabel = combinedBackendLabel(segmenter.backendLabel, encoder.backendLabel)
         val label = material?.display?.lowercase() ?: "open-vocabulary"
 
@@ -141,7 +155,8 @@ class LiteRTAnalysisClient(
         Log.i(
             TAG,
             "analyze: patch=$patchBbox segmentation=${segmentationMs}ms " +
-                "encoder=${encoderMs}ms head=${headMs}ms " +
+                "encoder=${encoderMs}ms head=${headMs}ms classifier=${classifierMs}ms " +
+                "total=${totalMs}ms " +
                 "axes=(r=${"%.2f".format(axes.roughness)}, " +
                 "h=${"%.2f".format(axes.hardness)}, " +
                 "f=${"%.2f".format(axes.friction)}, " +
@@ -156,7 +171,7 @@ class LiteRTAnalysisClient(
             confidence = confidence,
             label = label,
             backendLabel = backendLabel,
-            inferenceLatencyMs = totalMs,
+            inferenceLatencyMs = classifierMs,
             primitiveWeights = PrimitiveMapper.map(axes),
         )
     }
@@ -193,43 +208,48 @@ class LiteRTAnalysisClient(
         return android.graphics.Rect(left, top, right, bottom)
     }
 
-    private fun bitmapToNhwc(bm: Bitmap): Array<Array<Array<FloatArray>>> {
+    private fun bitmapToNhwcBuffer(bm: Bitmap): java.nio.ByteBuffer {
         // [1, H, W, 3] float32; pixel/255 then (x - 0.5) / 0.5 -> [-1, 1].
         val w = bm.width
         val h = bm.height
         val pixels = IntArray(w * h)
         bm.getPixels(pixels, 0, w, 0, 0, w, h)
-        val out = Array(1) { Array(h) { Array(w) { FloatArray(3) } } }
-        for (y in 0 until h) {
-            for (x in 0 until w) {
-                val p = pixels[y * w + x]
-                val r = ((p shr 16) and 0xff) / 255f
-                val g = ((p shr 8) and 0xff) / 255f
-                val b = (p and 0xff) / 255f
-                out[0][y][x][0] = (r - 0.5f) / 0.5f
-                out[0][y][x][1] = (g - 0.5f) / 0.5f
-                out[0][y][x][2] = (b - 0.5f) / 0.5f
-            }
+        val buf = java.nio.ByteBuffer
+            .allocateDirect(1 * h * w * 3 * 4)
+            .order(java.nio.ByteOrder.nativeOrder())
+        val fb = buf.asFloatBuffer()
+        for (i in 0 until w * h) {
+            val p = pixels[i]
+            fb.put((((p shr 16) and 0xff) / 255f - 0.5f) / 0.5f)
+            fb.put((((p shr 8) and 0xff) / 255f - 0.5f) / 0.5f)
+            fb.put(((p and 0xff) / 255f - 0.5f) / 0.5f)
         }
-        return out
+        buf.rewind()
+        return buf
     }
 
-    private fun bitmapToNchw(bm: Bitmap): Array<Array<Array<FloatArray>>> {
+    private fun bitmapToNchwBuffer(bm: Bitmap): java.nio.ByteBuffer {
         // [1, 3, H, W] float32; same per-channel normalization as NHWC.
         val w = bm.width
         val h = bm.height
         val pixels = IntArray(w * h)
         bm.getPixels(pixels, 0, w, 0, 0, w, h)
-        val out = Array(1) { Array(3) { Array(h) { FloatArray(w) } } }
-        for (y in 0 until h) {
-            for (x in 0 until w) {
-                val p = pixels[y * w + x]
-                out[0][0][y][x] = (((p shr 16) and 0xff) / 255f - 0.5f) / 0.5f
-                out[0][1][y][x] = (((p shr 8) and 0xff) / 255f - 0.5f) / 0.5f
-                out[0][2][y][x] = ((p and 0xff) / 255f - 0.5f) / 0.5f
-            }
+        val buf = java.nio.ByteBuffer
+            .allocateDirect(1 * 3 * h * w * 4)
+            .order(java.nio.ByteOrder.nativeOrder())
+        val fb = buf.asFloatBuffer()
+        // Channel-first: write all R, then all G, then all B.
+        for (i in 0 until w * h) {
+            fb.put((((pixels[i] shr 16) and 0xff) / 255f - 0.5f) / 0.5f)
         }
-        return out
+        for (i in 0 until w * h) {
+            fb.put((((pixels[i] shr 8) and 0xff) / 255f - 0.5f) / 0.5f)
+        }
+        for (i in 0 until w * h) {
+            fb.put(((pixels[i] and 0xff) / 255f - 0.5f) / 0.5f)
+        }
+        buf.rewind()
+        return buf
     }
 
     private fun combinedBackendLabel(seg: String, enc: String): String =
