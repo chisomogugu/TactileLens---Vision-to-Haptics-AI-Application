@@ -2,7 +2,11 @@
 
 ![TactileLens](https://img.shields.io/badge/Status-Active-success) ![Platform](https://img.shields.io/badge/Platform-Android-green) ![AI](https://img.shields.io/badge/AI-LiteRT%20%7C%20Qualcomm%20Hexagon-blue)
 
-**TactileLens** is an on-device AI application designed to translate visual textures into real-time haptic and audio feedback. By simply pointing a smartphone camera (optimized for the Samsung Galaxy S25 Ultra) at a surface, the app analyzes visual microtextures and maps physical attributes—like roughness, hardness, friction, and density—into a rich, multi-sensory experience.
+**TactileLens** is an on-device AI application designed to translate visual textures into real-time haptic and audio feedback. By simply pointing a smartphone camera (optimized for the Samsung Galaxy S25 Ultra) at a surface, the app analyzes visual microtextures and maps physical attributes (roughness, hardness, friction, and density) into a rich, multi-sensory experience.
+
+## 🎥 Demo
+
+[Watch the 60-second demo on YouTube](https://www.youtube.com/watch?v=EnYHW1lqsRU)
 
 ## 🌟 Vision & Use Cases
 
