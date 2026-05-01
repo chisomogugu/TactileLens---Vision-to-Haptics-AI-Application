@@ -44,13 +44,24 @@ class LiteRTSession(
     val outputShape: IntArray
 
     init {
-        // Try QNN HTP first. If the delegate constructor throws (no
-        // libQnnHtp on this device, etc.), fall back to plain CPU.
-        val (delegate, options) = buildOptionsWithQnn()
-        qnnDelegate = delegate
-        backendLabel = if (delegate != null) "NPU" else "CPU"
+        // Try QNN HTP first. Two failure modes both fall back to CPU:
+        //   (1) QnnDelegate(...) constructor throws -> no QNN runtime
+        //       on this device.
+        //   (2) Interpreter(buffer, opts) throws "Failed to apply
+        //       delegate" -> QNN runtime is fine but HTP can't take
+        //       this particular model graph (e.g. unsupported op or
+        //       float32 graph that needs AI Hub prep).
+        val attempted = tryQnnInterpreter(assetName)
+        if (attempted != null) {
+            interpreter = attempted.first
+            qnnDelegate = attempted.second
+            backendLabel = "NPU"
+        } else {
+            interpreter = buildCpuInterpreter()
+            qnnDelegate = null
+            backendLabel = "CPU"
+        }
 
-        interpreter = Interpreter(modelBuffer, options)
         interpreter.allocateTensors()
         inputShape = interpreter.getInputTensor(0).shape().clone()
         outputShape = interpreter.getOutputTensor(0).shape().clone()
@@ -83,7 +94,8 @@ class LiteRTSession(
         runCatching { qnnDelegate?.close() }
     }
 
-    private fun buildOptionsWithQnn(): Pair<QnnDelegate?, Interpreter.Options> {
+    private fun tryQnnInterpreter(assetName: String): Pair<Interpreter, QnnDelegate>? {
+        var delegate: QnnDelegate? = null
         return try {
             val qnnOptions = QnnDelegate.Options().apply {
                 setBackendType(QnnDelegate.Options.BackendType.HTP_BACKEND)
@@ -91,18 +103,27 @@ class LiteRTSession(
                     QnnDelegate.Options.HtpPerformanceMode.HTP_PERFORMANCE_BURST,
                 )
             }
-            val delegate = QnnDelegate(qnnOptions)
+            delegate = QnnDelegate(qnnOptions)
             val opts = Interpreter.Options().apply {
                 addDelegate(delegate)
                 setNumThreads(2)
             }
-            delegate to opts
+            val interp = Interpreter(modelBuffer, opts)
+            interp to delegate
         } catch (t: Throwable) {
-            // QNN unavailable on this device or this OS image. CPU path.
-            Log.w(TAG, "QNN delegate unavailable; falling back to CPU: ${t.message}")
-            val opts = Interpreter.Options().apply { setNumThreads(4) }
-            null to opts
+            Log.w(
+                TAG,
+                "$assetName cannot run on QNN HTP (model likely needs AI Hub prep " +
+                    "or quantization); falling back to CPU. Cause: ${t.message}",
+            )
+            runCatching { delegate?.close() }
+            null
         }
+    }
+
+    private fun buildCpuInterpreter(): Interpreter {
+        val opts = Interpreter.Options().apply { setNumThreads(4) }
+        return Interpreter(modelBuffer, opts)
     }
 
     private fun loadAssetAsByteBuffer(context: Context, assetName: String): MappedByteBuffer {

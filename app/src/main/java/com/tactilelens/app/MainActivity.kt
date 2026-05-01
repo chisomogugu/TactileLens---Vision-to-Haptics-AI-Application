@@ -86,7 +86,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.tactilelens.app.data.analysis.U2NetSegmenter
 import com.tactilelens.app.data.model.AnalysisResult
@@ -177,22 +176,22 @@ fun ScannerApp(container: AppContainer) {
             // Mock analysis ~1.5 s, U2Net ~50–500 ms (NPU bound).
             coroutineScope {
                 val analysisDeferred = async { container.analysis.analyze(captured) }
-                val segDeferred = async {
+                // Run U2Net first so the reveal mounts only after the
+                // real saliency / cropped bitmaps are available. No mock
+                // fallback any more; while segmentation is in flight the
+                // scanner shows the captured photo + a basic sweep.
+                segmentation = withContext(Dispatchers.Default) {
                     runCatching {
-                        withContext(Dispatchers.Default) {
-                            val bm = loadBitmapFromUri(context, captured)
-                                ?: error("could not decode captured photo")
-                            container.segmenter.segment(bm)
-                        }
+                        val bm = loadBitmapFromUri(context, captured)
+                            ?: error("could not decode captured photo")
+                        container.segmenter.segment(bm)
                     }.onFailure {
                         Log.e("TactileLensML", "U2Net segmentation failed", it)
                     }.getOrNull()
                 }
-                // Surface the segmentation as soon as it's ready so the
-                // scan reveal can swap in the real saliency / cropped
-                // bitmaps mid-animation. Sibling launch in this scope, so
-                // it's automatically cancelled if the LaunchedEffect is.
-                launch { segmentation = segDeferred.await() }
+                // 7 s budget for the reveal animation. Starts only after
+                // segmentation is done so the animation never flickers
+                // between mock and real bitmaps.
                 delay(7000)
                 analysisResult = analysisDeferred.await()
             }
@@ -326,19 +325,10 @@ private fun ScannerScreen(
                         val context = LocalContext.current
                         val imageBitmap by rememberLoadedBitmap(context, imageUri)
 
-                        // Mock thermal/depth assets: kept as fallback for the
-                        // brief window before U2Net inference completes (and
-                        // for devices where the segmenter fails to load).
-                        val mockThermal by produceState<ImageBitmap?>(initialValue = null) {
-                            value = loadBitmapFromAssets(context, "thermal_map.png")?.asImageBitmap()
-                        }
-                        val mockDepth by produceState<ImageBitmap?>(initialValue = null) {
-                            value = loadBitmapFromAssets(context, "depth_wireframe.png")?.asImageBitmap()
-                        }
-
-                        // Real U2Net output, when available. Recomputed when
-                        // the segmentation result lands (keyed on the result
-                        // identity so we only convert each bitmap once).
+                        // U2Net output drives the reveal directly. While
+                        // segmentation is in flight (or if it failed) we
+                        // show only the captured photo + a basic sweep —
+                        // never any mock placeholder bitmaps.
                         val saliencyImg by produceState<ImageBitmap?>(initialValue = null, key1 = segmentation) {
                             value = segmentation?.saliency?.asImageBitmap()
                         }
@@ -346,16 +336,14 @@ private fun ScannerScreen(
                             value = segmentation?.cropped?.asImageBitmap()
                         }
 
-                        // Prefer real model output, fall back to mock assets.
-                        val thermalBitmap = saliencyImg ?: mockThermal
-                        val depthBitmap = croppedImg ?: mockDepth
-
                         if (imageBitmap != null) {
-                            if (thermalBitmap != null && depthBitmap != null) {
+                            val sal = saliencyImg
+                            val crop = croppedImg
+                            if (sal != null && crop != null) {
                                 ScannerRevealEffect(
                                     originalBitmap = imageBitmap!!,
-                                    thermalBitmap = thermalBitmap,
-                                    depthBitmap = depthBitmap,
+                                    thermalBitmap = sal,
+                                    depthBitmap = crop,
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             } else {
@@ -549,16 +537,6 @@ fun ScannerRevealEffect(
                 drawImage(depthBitmap, dstSize = IntSize(width.toInt(), height.toInt()))
             }
         }
-    }
-}
-
-private fun loadBitmapFromAssets(context: Context, fileName: String): Bitmap? {
-    return try {
-        context.assets.open(fileName).use { inputStream ->
-            android.graphics.BitmapFactory.decodeStream(inputStream)
-        }
-    } catch (e: Exception) {
-        null
     }
 }
 

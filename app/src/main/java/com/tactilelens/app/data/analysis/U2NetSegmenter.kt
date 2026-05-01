@@ -52,11 +52,21 @@ class U2NetSegmenter(context: Context) : Closeable {
     )
 
     fun segment(input: Bitmap): SegmentationResult {
+        // ImageDecoder on Android 9+ defaults to hardware bitmaps which
+        // live on the GPU and reject getPixels(). Convert to a software
+        // ARGB_8888 once at the entry so every downstream pixel access
+        // (encoder input, saliency upscale, mask paint) just works.
+        val softInput = if (input.config == Bitmap.Config.HARDWARE) {
+            input.copy(Bitmap.Config.ARGB_8888, false)
+        } else {
+            input
+        }
+
         // Resize photo to model input. Output shape from session is
         // either NHWC [1,H,W,1] or NHWC [1,H,W,3] depending on conversion.
         val inH = session.inputShape[1]
         val inW = session.inputShape[2]
-        val resized = Bitmap.createScaledBitmap(input, inW, inH, true)
+        val resized = Bitmap.createScaledBitmap(softInput, inW, inH, true)
 
         val inputTensor = bitmapToFloatNhwc(resized, inW, inH)
         val outChannels = if (session.outputShape.size >= 4) session.outputShape[3] else 1
@@ -82,12 +92,12 @@ class U2NetSegmenter(context: Context) : Closeable {
         val saliencyBmp = saliencyToBitmap(saliencyArray, outW, outH)
         val maskBmp = saliencyToMaskBitmap(saliencyArray, outW, outH, threshold = 0.5f)
         val bboxAtModel = boundingBoxOfMask(saliencyArray, outW, outH, threshold = 0.5f)
-        val bboxAtOriginal = scaleRect(bboxAtModel, outW, outH, input.width, input.height)
-        val croppedBmp = cropMaskedForeground(input, saliencyArray, outW, outH, bboxAtOriginal)
+        val bboxAtOriginal = scaleRect(bboxAtModel, outW, outH, softInput.width, softInput.height)
+        val croppedBmp = cropMaskedForeground(softInput, saliencyArray, outW, outH, bboxAtOriginal)
 
         Log.i(
             TAG,
-            "segment: ${input.width}x${input.height} -> bbox=$bboxAtOriginal inference=${ms}ms ($backendLabel)",
+            "segment: ${softInput.width}x${softInput.height} -> bbox=$bboxAtOriginal inference=${ms}ms ($backendLabel)",
         )
 
         return SegmentationResult(
