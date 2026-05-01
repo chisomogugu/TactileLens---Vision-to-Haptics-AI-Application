@@ -43,10 +43,23 @@ object MaterialCentroids {
     // distribution is much tighter than the training-centroid table from
     // `modeloutput.md` (everything clusters around rough~0.65, hard~0.9,
     // friction~0.75), so the threshold tightens to match.
+    // Glass / paper / wood are empirically retuned on-device to match the
+    // shipped model's actual output distribution. The teammate's ground-
+    // truth table consistently overstated friction (model emits ~0.05-0.10
+    // lower) and, for wood, understated density. Roughness and hardness
+    // track the original table closely, so they keep Madeline's values.
+    //
+    // Rocks / sand / fabric are estimates: training centroids from
+    // modeloutput.md with the same -0.05 friction bias correction
+    // applied. No on-device samples yet, so confidence on those snaps
+    // will be lower until calibrated.
     private val centroids: Map<Material, TextureAxes> = mapOf(
-        Material.GLASS to TextureAxes(roughness = 0.6778f, hardness = 0.8430f, friction = 0.7169f, density = 0.2807f),
-        Material.PAPER to TextureAxes(roughness = 0.6268f, hardness = 0.8908f, friction = 0.7247f, density = 0.3975f),
-        Material.WOOD  to TextureAxes(roughness = 0.6110f, hardness = 0.9375f, friction = 0.8118f, density = 0.2026f),
+        Material.GLASS  to TextureAxes(roughness = 0.6778f, hardness = 0.8430f, friction = 0.6650f, density = 0.2807f),
+        Material.PAPER  to TextureAxes(roughness = 0.6268f, hardness = 0.8908f, friction = 0.6980f, density = 0.4200f),
+        Material.WOOD   to TextureAxes(roughness = 0.6010f, hardness = 0.9300f, friction = 0.7200f, density = 0.3000f),
+        Material.ROCKS  to TextureAxes(roughness = 0.8500f, hardness = 0.9400f, friction = 0.6500f, density = 0.3300f),
+        Material.SAND   to TextureAxes(roughness = 0.5700f, hardness = 0.2300f, friction = 0.5800f, density = 0.8900f),
+        Material.FABRIC to TextureAxes(roughness = 0.3500f, hardness = 0.1000f, friction = 0.6800f, density = 0.6100f),
     )
 
     /**
