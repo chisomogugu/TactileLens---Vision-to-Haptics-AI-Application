@@ -36,40 +36,31 @@ object MaterialCentroids {
     // When the team's better encoder lands, this whole table reverts to
     // the originals.
     // ------------------------------------------------------------------
+    // Empirical means from the new axes model (n=10 captures per material,
+    // teammate-supplied). Only glass, paper, wood are measured at this
+    // point; rocks/sand/fabric fall through to open-vocab and are routed
+    // to the procedural haptic + silent audio path. The new model's output
+    // distribution is much tighter than the training-centroid table from
+    // `modeloutput.md` (everything clusters around rough~0.65, hard~0.9,
+    // friction~0.75), so the threshold tightens to match.
     private val centroids: Map<Material, TextureAxes> = mapOf(
-        // (a) Empirically measured on-device:
-        Material.PAPER  to TextureAxes(roughness = 0.13f, hardness = 0.26f, friction = 0.30f, density = 0.50f),
-        // crumpled paper, n=3, sd ≈ 0.05/axis
-        Material.WOOD   to TextureAxes(roughness = 0.30f, hardness = 0.45f, friction = 0.35f, density = 0.45f),
-        // wood cabinet/countertop, n=7, sd ≈ 0.07/axis
-
-        // (b) Linear-remapped from the team's training centroids until
-        // we have on-device samples:
-        Material.ROCKS  to TextureAxes(roughness = 0.61f, hardness = 0.66f, friction = 0.52f, density = 0.30f),
-        // orig (0.85, 0.94, 0.70, 0.33)
-        Material.GLASS  to TextureAxes(roughness = 0.13f, hardness = 0.68f, friction = 0.15f, density = 0.13f),
-        // orig (0.05, 0.96, 0.08, 0.05)
-        Material.SAND   to TextureAxes(roughness = 0.44f, hardness = 0.24f, friction = 0.48f, density = 0.63f),
-        // orig (0.57, 0.23, 0.63, 0.89)
-        Material.FABRIC to TextureAxes(roughness = 0.31f, hardness = 0.16f, friction = 0.54f, density = 0.47f),
-        // orig (0.35, 0.10, 0.73, 0.61)
+        Material.GLASS to TextureAxes(roughness = 0.6778f, hardness = 0.8430f, friction = 0.7169f, density = 0.2807f),
+        Material.PAPER to TextureAxes(roughness = 0.6268f, hardness = 0.8908f, friction = 0.7247f, density = 0.3975f),
+        Material.WOOD  to TextureAxes(roughness = 0.6110f, hardness = 0.9375f, friction = 0.8118f, density = 0.2026f),
     )
 
     /**
      * Euclidean distance below which axes are classified as canonical.
      *
-     * Loosened from 0.30 → 0.50 after on-device testing showed real-world
-     * predictions land in a compressed range (~0.1–0.7) post-LinearHead
-     * `std`-clamp, while the centroid table still uses the full original
-     * 0.05–0.96 spread from the team's training set. With 0.30 most photos
-     * landed *just past* the threshold and fell to OPEN VOCABULARY — e.g.
-     * a literal wood cabinet at axes=(0.36, 0.50, 0.41, 0.44) was 0.332
-     * from the Wood centroid (0.31, 0.78, 0.43, 0.27), missing classification
-     * by 0.032. 0.50 lets that case (and the analogous Glass/Paper near-miss)
-     * snap to the right material. Until the new model lands and predictions
-     * reach centroid extremes, this is the right knob.
+     * Set to 0.30 for the new axes model. Inter-centroid distances are
+     * 0.139 (glass-paper), 0.171 (glass-wood), 0.226 (paper-wood); per-axis
+     * std on a single capture is roughly 0.05-0.12. The threshold only
+     * controls whether anything snaps versus falling to open-vocab, not
+     * which centroid wins (closest always does), so a generous value just
+     * means more captures get a label. 0.30 catches normal observation
+     * noise comfortably while staying inside the inter-centroid budget.
      */
-    const val CLASSIFICATION_THRESHOLD: Float = 0.50f
+    const val CLASSIFICATION_THRESHOLD: Float = 0.30f
 
     /**
      * Returns the nearest canonical material if min distance is within

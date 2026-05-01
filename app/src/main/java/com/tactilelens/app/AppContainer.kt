@@ -3,7 +3,7 @@ package com.tactilelens.app
 import android.content.Context
 import android.util.Log
 import com.tactilelens.app.data.analysis.AnalysisClient
-import com.tactilelens.app.data.analysis.LiteRTAnalysisClient
+import com.tactilelens.app.data.analysis.BestModelAnalysisClient
 import com.tactilelens.app.data.analysis.Segmenter
 import com.tactilelens.app.data.analysis.U2NetSegmenter
 import com.tactilelens.app.data.audio.AudioRenderer
@@ -58,9 +58,15 @@ class AppContainer(private val context: Context) {
      * rebuilt it, and the next analyze() crashed with "Interpreter has
      * already been closed" (logcat 2026-05-01 23:23:41 on R3CXC0803XW).
      */
+    /**
+     * Analysis client. Currently [BestModelAnalysisClient] which runs the
+     * end-to-end `best_model.tflite` (image -> 4 axes) on NPU. Revert to
+     * `LiteRTAnalysisClient(context, segmenter)` to fall back to the
+     * two-stage encoder + LinearHead pipeline if the new model regresses.
+     */
     private var _analysis: AnalysisClient? = null
     val analysis: AnalysisClient
-        get() = _analysis ?: LiteRTAnalysisClient(context, segmenter).also { _analysis = it }
+        get() = _analysis ?: BestModelAnalysisClient(context, segmenter).also { _analysis = it }
 
     fun start() {
         audio.start()
