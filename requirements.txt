@@ -1,0 +1,18 @@
+# Qualcomm AI Hub - model optimization & NPU deployment
+qai-hub[torch]
+qai-hub-models
+
+# LiteRT - on-device inference runtime
+ai-edge-litert
+
+# Model training & export
+torch
+torchvision
+
+# Image processing & texture data
+Pillow
+numpy
+opencv-python
+
+# Utilities
+tqdm

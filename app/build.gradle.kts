@@ -37,6 +37,13 @@ android {
     buildFeatures {
         compose = true
     }
+    
+    // CRITICAL: Prevent Android from compressing .tflite files in the APK.
+    // If compressed, FileUtil.loadMappedFile() will fail or load the entire model into RAM,
+    // destroying NPU performance and memory mapping.
+    androidResources {
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
@@ -55,4 +62,15 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    
+    // LiteRT Dependencies
+    implementation(libs.litert)
+    implementation(libs.litert.support)
+    implementation(libs.litert.metadata)
+    
+    // CameraX Dependencies
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.androidx.camera.camera2)
 }
