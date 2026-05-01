@@ -1,8 +1,8 @@
 # Audio Source Provenance
 
-## Current state (2026-04-30, hackathon Day 1)
+## Current state (2026-05-01, hackathon Day 2)
 
-All five materials now ship with distinct real foley clips, each ffmpeg-processed
+All six materials now ship with distinct real foley clips, each ffmpeg-processed
 to 3 s mono 44.1 kHz 16-bit PCM via the project recipe (compressor + alimiter +
 loudnorm + 150 ms fades). All clips are CC0 licensed.
 
@@ -10,9 +10,10 @@ loudnorm + 150 ms fades). All clips are CC0 licensed.
 | --- | --- | --- |
 | Sand   | `sand/loop.wav`   | freesound community pack `freesound_community-sand-various-68938.mp3`, offset 36 s. |
 | Wood   | `wood/loop.wav`   | `https://freesound.org/people/RutgerMuller/sounds/104013/` (Wood Plank Scraping Close-Mic Long, 4.14 s), offset 0.5 s. CDN preview: `https://cdn.freesound.org/previews/104/104013_179538-hq.mp3`. |
-| Paper  | `paper/loop.wav`  | `https://pixabay.com/sound-effects/crumping-paper-109585/` (liecio — Crumpling Paper, 7.0 s stereo), offset 1.0 s, mixed to mono. Replaced GLASS in the canonical set after fluty wine-glass clips failed listen testing. |
+| Paper  | `paper/loop.wav`  | `https://pixabay.com/sound-effects/crumping-paper-109585/` (liecio — Crumpling Paper, 7.0 s stereo), offset 1.0 s, mixed to mono. |
 | Rocks  | `rocks/loop.wav`  | `https://freesound.org/people/alegemaate/sounds/364687/` (Gravel being disturbed, 4.47 s), offset 0.5 s. CDN preview: `https://cdn.freesound.org/previews/364/364687_2531187-hq.mp3`. |
 | Fabric | `fabric/loop.wav` | `https://freesound.org/people/Sonicquinn/sounds/435830/` (Fabric-Sofa-Rubbing-Movements_Mono_192000, 68.5 s), offset 30 s (middle of clip, uniform rubbing region). CDN preview: `https://cdn.freesound.org/previews/435/435830_8913961-hq.mp3`. |
+| Glass  | `glass/loop.wav`  | `https://freesound.org/people/aidansamuel/sounds/540146/` (Glass Cleaning Squeak — wet finger on glass window pane, 4.87 s), offset 0.5 s. CDN preview: `https://cdn.freesound.org/previews/540/540146_10965608-hq.mp3`. Replaces the earlier wine-glass clips that failed listen testing. |
 
 The CDN preview URLs are publicly fetchable and match what the freesound web
 player serves to its `<audio>` tag — they are how this build was sourced. For

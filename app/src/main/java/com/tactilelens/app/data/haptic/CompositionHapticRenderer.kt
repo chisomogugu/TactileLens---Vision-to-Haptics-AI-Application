@@ -76,7 +76,7 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
             Material.ROCKS -> rocksRecipe(velocityScale)
             Material.SAND -> sandRecipe(velocityScale)
             Material.FABRIC -> fabricRecipe(velocityScale)
-            Material.GLASS -> proceduralRecipe(axes, velocityScale)  // Phase 6: glassRecipe()
+            Material.GLASS -> glassRecipe(velocityScale)
             // Open-vocabulary path. Locked decision Q7-B: when the ML pipeline
             // produced an 8-vector signature use it as the gesture stamp;
             // otherwise fall back to the axis-driven procedural recipe so
@@ -147,7 +147,11 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
             Material.FABRIC -> fabricResistanceBurst(velFactor)
             Material.SAND -> sandResistanceBurst(velFactor)
             Material.ROCKS -> rocksResistanceBurst(velFactor)
-            Material.GLASS -> proceduralSwipeEffect(axes, velFactor)  // Phase 6: PRIMITIVE_QUICK_FALL
+            // Glass swipe: per-crossing CLICK with a touch of QUICK_FALL after.
+            // CLICK alone on glass-axes was barely perceptible during testing
+            // — the second primitive gives the sustained "slick-and-bright"
+            // signature that matches the wet-finger-on-windowpane foley.
+            Material.GLASS -> glassSwipeBurst(velFactor)
             null -> proceduralSwipeEffect(axes, velFactor)
         }
     }
@@ -161,20 +165,18 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
     }
 
     /**
-     * Fabric resistance: 80 ms rising-then-falling burst per crossing.
-     * Communicates "tension builds, then releases" — pulling through cloth.
+     * Fabric per-crossing: single low-amp QUICK_RISE. The fabric foley is a
+     * smooth dark drone (crest factor 2.7, ZCR 0.01 — almost no transients),
+     * so discrete tap primitives mismatch the audio character. QUICK_RISE has
+     * a ~100 ms ramp envelope; at the 40 ms crossing throttle successive
+     * crossings overlap mid-ramp, blending into a continuous soft buzz that
+     * matches the sonic drone — sustained, not bubbly.
      */
     private fun fabricResistanceBurst(velFactor: Float): VibrationEffect {
-        val timings = longArrayOf(10, 15, 20, 15, 10, 10)
-        val amps = intArrayOf(
-            (120 * velFactor).toInt().coerceIn(40, 255),
-            (180 * velFactor).toInt().coerceIn(40, 255),
-            (240 * velFactor).toInt().coerceIn(60, 255),
-            (200 * velFactor).toInt().coerceIn(50, 255),
-            (150 * velFactor).toInt().coerceIn(40, 255),
-            (80 * velFactor).toInt().coerceIn(30, 255),
-        )
-        return VibrationEffect.createWaveform(timings, amps, -1)
+        val rise = (0.55f * velFactor).coerceIn(0.15f, 0.9f)
+        return VibrationEffect.startComposition()
+            .addPrimitive(PRIMITIVE_QUICK_RISE, rise, 0)
+            .compose()
     }
 
     /**
@@ -190,18 +192,20 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
     }
 
     /**
-     * Rocks resistance: 60 ms big-catch burst per crossing. Initial
-     * spike + brief release + bigger spike = climbing over a stone.
+     * Rocks per-crossing: CLICK + LOW_TICK chord. CLICK is the hardest
+     * percussive primitive (~20 ms felt), LOW_TICK adds a brief weight-settle
+     * after. Total felt duration ~35 ms — fits inside the 40 ms crossing
+     * throttle so each event completes cleanly instead of being cancelled
+     * mid-decay. Replaces a single THUD which was both too pillowy for hard
+     * stone and produced a muffled stutter when cancelled 25 times per second.
      */
     private fun rocksResistanceBurst(velFactor: Float): VibrationEffect {
-        val timings = longArrayOf(15, 12, 25, 8)
-        val amps = intArrayOf(
-            (220 * velFactor).toInt().coerceIn(40, 255),
-            (60 * velFactor).toInt().coerceIn(20, 255),
-            (245 * velFactor).toInt().coerceIn(80, 255),
-            (90 * velFactor).toInt().coerceIn(30, 255),
-        )
-        return VibrationEffect.createWaveform(timings, amps, -1)
+        val click = (0.95f * velFactor).coerceIn(0.30f, 1f)
+        val tick = (0.55f * velFactor).coerceIn(0.20f, 1f)
+        return VibrationEffect.startComposition()
+            .addPrimitive(PRIMITIVE_CLICK, click, 0)
+            .addPrimitive(PRIMITIVE_LOW_TICK, tick, 12)
+            .compose()
     }
 
     /**
@@ -220,7 +224,7 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
             VibrationEffect.createWaveform(timings, amps, -1)
         } else {
             // Smooth single primitive: hardness picks sharpness ladder.
-            val sharpness = (axes.hardness * 0.7f + (1f - axes.flatBumpy) * 0.3f).coerceIn(0f, 1f)
+            val sharpness = (axes.hardness * 0.7f + (1f - axes.density) * 0.3f).coerceIn(0f, 1f)
             val primitive = when {
                 sharpness > 0.66f -> PRIMITIVE_CLICK
                 sharpness > 0.33f -> PRIMITIVE_TICK
@@ -257,16 +261,19 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
         return comp.compose()
     }
 
-    /** Rocks: N x LOW_TICK at fixed intervals (granular crunch). */
+    /**
+     * Rocks tap-down: sharp CLICK impact followed by a weighted THUD settle.
+     * One-shot event so THUD's long decay tail is fully felt — the "set hand
+     * on stone" contact: hard percussive landing, then weight transfer.
+     */
     private fun rocksRecipe(scale: Float): VibrationEffect {
         val cfg = tuning.rocks
-        val comp = VibrationEffect.startComposition()
-        val count = cfg.count.coerceAtLeast(1)
-        val baseAmp = (cfg.scale * scale).coerceIn(0f, 1f)
-        repeat(count) { i ->
-            comp.addPrimitive(PRIMITIVE_LOW_TICK, jitterAmp(baseAmp), if (i == 0) 0 else cfg.intervalMs)
-        }
-        return comp.compose()
+        val click = (cfg.clickScale * scale).coerceIn(0.05f, 1f)
+        val thud = (cfg.thudScale * scale).coerceIn(0.05f, 1f)
+        return VibrationEffect.startComposition()
+            .addPrimitive(PRIMITIVE_CLICK, click, 0)
+            .addPrimitive(PRIMITIVE_THUD, thud, cfg.thudGapMs)
+            .compose()
     }
 
     /** Sand: dense low-amplitude LOW_TICKs with jitter (whispery hiss). */
@@ -282,24 +289,50 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
     }
 
     /**
-     * Fabric: mid-density LOW_TICK weave with a SLOW_RISE drag-out tail.
-     * Communicates "soft scratchy buzz then sustained drag" — distinct from
-     * sand (denser, no tail) and rocks (sparser, much louder).
+     * Fabric tap-down: a single soft LOW_TICK contact followed by a SLOW_RISE
+     * settle — the "settling into cloth" feel. The prior 6x LOW_TICK train
+     * stuttered as a bubbly run; the single tap + slow tail keeps the soft
+     * draggy character that distinguishes fabric from sand and rocks without
+     * the rapid-fire repetition.
      */
     private fun fabricRecipe(scale: Float): VibrationEffect {
         val cfg = tuning.fabric
-        val comp = VibrationEffect.startComposition()
-        val count = cfg.count.coerceAtLeast(1)
-        val baseAmp = (cfg.scale * scale).coerceIn(0f, 1f)
-        repeat(count) { i ->
-            comp.addPrimitive(PRIMITIVE_LOW_TICK, jitterAmp(baseAmp), if (i == 0) 0 else cfg.intervalMs)
-        }
-        comp.addPrimitive(
-            PRIMITIVE_SLOW_RISE,
-            (cfg.dragTailScale * scale).coerceIn(0.01f, 1f),
-            cfg.dragTailGapMs,
-        )
-        return comp.compose()
+        val tick = (cfg.tickScale * scale).coerceIn(0.05f, 1f)
+        val rise = (cfg.riseScale * scale).coerceIn(0.05f, 1f)
+        return VibrationEffect.startComposition()
+            .addPrimitive(PRIMITIVE_LOW_TICK, tick, 0)
+            .addPrimitive(PRIMITIVE_SLOW_RISE, rise, cfg.riseGapMs)
+            .compose()
+    }
+
+    /**
+     * Glass: bright CLICK + two decaying TICKs — crystalline "tap-ting-ting".
+     * CLICK is the sharpest Composition primitive on the demo device; the
+     * decaying TICK tail gives the chord a ringing character matching the
+     * wet-finger-on-windowpane foley.
+     */
+    private fun glassRecipe(scale: Float): VibrationEffect {
+        val cfg = tuning.glass
+        return VibrationEffect.startComposition()
+            .addPrimitive(PRIMITIVE_CLICK, (cfg.clickScale * scale).coerceIn(0.01f, 1f), 0)
+            .addPrimitive(PRIMITIVE_TICK,  (cfg.tick1Scale * scale).coerceIn(0.01f, 1f), cfg.gap1Ms)
+            .addPrimitive(PRIMITIVE_TICK,  (cfg.tick2Scale * scale).coerceIn(0.01f, 1f), cfg.gap2Ms)
+            .compose()
+    }
+
+    /**
+     * Glass swipe per-crossing: CLICK + QUICK_FALL chord. CLICK gives the
+     * bright "tap" the user expects from glass; QUICK_FALL adds a slick
+     * release tail so consecutive crossings during a drag read as a
+     * polished surface, not a series of disconnected taps.
+     */
+    private fun glassSwipeBurst(velFactor: Float): VibrationEffect {
+        val click = (0.85f * velFactor).coerceIn(0.10f, 1f)
+        val fall = (0.60f * velFactor).coerceIn(0.08f, 1f)
+        return VibrationEffect.startComposition()
+            .addPrimitive(PRIMITIVE_CLICK, click, 0)
+            .addPrimitive(PRIMITIVE_QUICK_FALL, fall, 20)
+            .compose()
     }
 
     /**
@@ -342,13 +375,13 @@ class CompositionHapticRenderer(context: Context) : HapticRenderer {
         val cfg = tuning.procedural
         val comp = VibrationEffect.startComposition()
         val tickCount = (1 + (axes.roughness * cfg.tickMultiplier).toInt()).coerceAtLeast(1)
-        val sharpness = (axes.hardness * 0.7f + (1f - axes.flatBumpy) * 0.3f).coerceIn(0f, 1f)
+        val sharpness = (axes.hardness * 0.7f + (1f - axes.density) * 0.3f).coerceIn(0f, 1f)
         val primitive = when {
             sharpness > 0.66f -> PRIMITIVE_CLICK
             sharpness > 0.33f -> PRIMITIVE_TICK
             else -> PRIMITIVE_LOW_TICK
         }
-        val baseAmp = (cfg.baseScale * scale * (0.6f + axes.flatBumpy * 0.4f)).coerceIn(0.01f, 1f)
+        val baseAmp = (cfg.baseScale * scale * (0.6f + axes.density * 0.4f)).coerceIn(0.01f, 1f)
         repeat(tickCount) { i ->
             comp.addPrimitive(primitive, jitterAmp(baseAmp, cfg.jitter), if (i == 0) 0 else cfg.intervalMs)
         }

@@ -14,6 +14,7 @@ data class HapticTuning(
     val rocks: Rocks = Rocks(),
     val sand: Sand = Sand(),
     val fabric: Fabric = Fabric(),
+    val glass: Glass = Glass(),
     val procedural: Procedural = Procedural(),
 ) {
     /**
@@ -41,11 +42,15 @@ data class HapticTuning(
         val intervalMs: Int = 40,
     )
 
-    /** Rocks: medium-density LOW_TICK train (granular crunch). */
+    /**
+     * Rocks tap-down: sharp CLICK impact followed by a weighted THUD settle.
+     * The "set hand on stone" contact: hard percussive landing, then weight
+     * transfer. One-shot, so the THUD tail is fully felt (no cancellation).
+     */
     data class Rocks(
-        val count: Int = 8,
-        val scale: Float = 0.98f,
-        val intervalMs: Int = 60,
+        val clickScale: Float = 1.0f,
+        val thudScale: Float = 0.85f,
+        val thudGapMs: Int = 40,
     )
 
     /**
@@ -61,16 +66,31 @@ data class HapticTuning(
     )
 
     /**
-     * Fabric: mid-density LOW_TICKs followed by a SLOW_RISE drag-out
-     * (soft weave + draggy textile character). Sits between sand (denser,
-     * quieter, gritty) and rocks (sparser, louder, granular).
+     * Fabric tap-down: a single soft LOW_TICK contact followed by a SLOW_RISE
+     * settle — the "settling into cloth" feel. Replaces the prior 6x LOW_TICK
+     * train, which stuttered as a bubbly run instead of the soft single
+     * contact a textile surface should give.
      */
     data class Fabric(
-        val count: Int = 6,
-        val scale: Float = 0.75f,
-        val intervalMs: Int = 50,
-        val dragTailScale: Float = 0.65f,
-        val dragTailGapMs: Int = 60,
+        val tickScale: Float = 0.75f,
+        val riseScale: Float = 0.55f,
+        val riseGapMs: Int = 40,
+    )
+
+    /**
+     * Glass: bright CLICK followed by two decaying TICKs — a crystalline
+     * "tap-ting-ting" snap. CLICK is the sharpest Composition primitive on
+     * the demo device; TICKs decay so the chord reads as ringing rather than
+     * a flat impact. Slightly heavier than the original Phase 6 plan (which
+     * was just CLICK + TICK) because a single CLICK on glass-axes was barely
+     * perceptible during testing.
+     */
+    data class Glass(
+        val clickScale: Float = 1.0f,
+        val tick1Scale: Float = 0.70f,
+        val tick2Scale: Float = 0.45f,
+        val gap1Ms: Int = 35,
+        val gap2Ms: Int = 40,
     )
 
     /**
