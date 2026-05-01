@@ -92,4 +92,8 @@ dependencies {
     implementation(libs.litert)
     implementation(libs.qnn.runtime)
     implementation(libs.qnn.litert.delegate)
+
+    // ML Kit object detection (bundled — no Firebase, no network required).
+    // Replaces U2Net for bounding-box detection; ~50ms vs ~380ms.
+    implementation("com.google.mlkit:object-detection:17.0.2")
 }
