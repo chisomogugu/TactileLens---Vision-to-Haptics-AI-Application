@@ -37,12 +37,18 @@ class U2NetSegmenter(context: Context) : Closeable {
     data class SegmentationResult(
         /** Raw saliency, model resolution (e.g. 320x320), grayscale. */
         val saliency: Bitmap,
-        /** Binary foreground mask at model resolution (0xFF / 0x00). */
-        val mask: Bitmap,
         /**
-         * Foreground extracted from the original photo, cropped to the
-         * mask's bounding box. Sized to the bbox's dimensions in the
-         * original image's coordinate space.
+         * Binary foreground mask AT ORIGINAL RESOLUTION with the bounding
+         * box overlaid as a thin colored rectangle. Used as the middle
+         * stage of the scanner reveal so the bbox is actually visible.
+         */
+        val maskWithBbox: Bitmap,
+        /**
+         * Full-original-size photo with the saliency mask applied as alpha.
+         * Same dimensions as the input bitmap so it composites naturally
+         * into a UI canvas designed for the original aspect ratio. Phase 4's
+         * encoder pipeline will further crop this to [bbox] before resizing
+         * to 224x224 for EfficientNet.
          */
         val cropped: Bitmap,
         /** The bounding box of the foreground in original-image coordinates. */
@@ -90,9 +96,16 @@ class U2NetSegmenter(context: Context) : Closeable {
         }
 
         val saliencyBmp = saliencyToBitmap(saliencyArray, outW, outH)
-        val maskBmp = saliencyToMaskBitmap(saliencyArray, outW, outH, threshold = 0.5f)
         val bboxAtModel = boundingBoxOfMask(saliencyArray, outW, outH, threshold = 0.5f)
         val bboxAtOriginal = scaleRect(bboxAtModel, outW, outH, softInput.width, softInput.height)
+        val maskWithBboxBmp = maskWithBboxAtOriginalSize(
+            saliency = saliencyArray,
+            modelW = outW,
+            modelH = outH,
+            originalW = softInput.width,
+            originalH = softInput.height,
+            bbox = bboxAtOriginal,
+        )
         val croppedBmp = cropMaskedForeground(softInput, saliencyArray, outW, outH, bboxAtOriginal)
 
         Log.i(
@@ -102,7 +115,7 @@ class U2NetSegmenter(context: Context) : Closeable {
 
         return SegmentationResult(
             saliency = saliencyBmp,
-            mask = maskBmp,
+            maskWithBbox = maskWithBboxBmp,
             cropped = croppedBmp,
             bbox = bboxAtOriginal,
             inferenceMs = ms,
@@ -142,14 +155,48 @@ class U2NetSegmenter(context: Context) : Closeable {
         return bmp
     }
 
-    private fun saliencyToMaskBitmap(saliency: FloatArray, w: Int, h: Int, threshold: Float): Bitmap {
-        val pixels = IntArray(w * h)
+    private fun maskWithBboxAtOriginalSize(
+        saliency: FloatArray,
+        modelW: Int,
+        modelH: Int,
+        originalW: Int,
+        originalH: Int,
+        bbox: Rect,
+    ): Bitmap {
+        // Build the binary mask at model resolution, scale to original
+        // photo dimensions so it composites with the same aspect as
+        // saliency / cropped, then draw the bbox rectangle on top.
+        val pixels = IntArray(modelW * modelH)
         for (i in saliency.indices) {
-            pixels[i] = if (saliency[i] >= threshold) Color.WHITE else Color.BLACK
+            pixels[i] = if (saliency[i] >= 0.5f) Color.WHITE else Color.BLACK
         }
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        bmp.setPixels(pixels, 0, w, 0, 0, w, h)
-        return bmp
+        val small = Bitmap.createBitmap(modelW, modelH, Bitmap.Config.ARGB_8888)
+        small.setPixels(pixels, 0, modelW, 0, 0, modelW, modelH)
+        val scaled = Bitmap.createScaledBitmap(small, originalW, originalH, true)
+        small.recycle()
+
+        val output = Bitmap.createBitmap(originalW, originalH, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        canvas.drawBitmap(scaled, 0f, 0f, null)
+        scaled.recycle()
+
+        // Cyan bbox stroke; thickness scales with image size so it stays
+        // visible regardless of source resolution.
+        val strokePx = (minOf(originalW, originalH) * 0.005f).coerceAtLeast(2f)
+        val paint = Paint().apply {
+            color = Color.argb(255, 60, 220, 255)
+            style = Paint.Style.STROKE
+            strokeWidth = strokePx
+            isAntiAlias = true
+        }
+        canvas.drawRect(
+            bbox.left.toFloat(),
+            bbox.top.toFloat(),
+            bbox.right.toFloat(),
+            bbox.bottom.toFloat(),
+            paint,
+        )
+        return output
     }
 
     private fun boundingBoxOfMask(saliency: FloatArray, w: Int, h: Int, threshold: Float): Rect {
@@ -184,13 +231,14 @@ class U2NetSegmenter(context: Context) : Closeable {
         saliency: FloatArray,
         modelW: Int,
         modelH: Int,
-        bbox: Rect,
+        @Suppress("UNUSED_PARAMETER") bbox: Rect,
     ): Bitmap {
-        val cropW = (bbox.width()).coerceAtLeast(1)
-        val cropH = (bbox.height()).coerceAtLeast(1)
-
-        // 1) Upscale the saliency map to the original image's resolution
-        //    (cheap nearest-neighbor via Bitmap.createScaledBitmap).
+        // Same dimensions as the input photo so it composites naturally
+        // into a UI canvas at the original aspect ratio. Background is
+        // filled with the app's dark backdrop (DeepSpace) so the
+        // background-removal effect is visually obvious — without this
+        // the masked areas are transparent and the result looks too
+        // similar to the original photo.
         val saliencyHiRes = Bitmap.createScaledBitmap(
             saliencyToBitmap(saliency, modelW, modelH),
             original.width,
@@ -198,29 +246,31 @@ class U2NetSegmenter(context: Context) : Closeable {
             true,
         )
 
-        // 2) Crop both the original photo and the upscaled saliency to bbox.
-        val croppedPhoto = Bitmap.createBitmap(original, bbox.left, bbox.top, cropW, cropH)
-        val croppedSaliency = Bitmap.createBitmap(saliencyHiRes, bbox.left, bbox.top, cropW, cropH)
-
-        // 3) Multiply: dst.alpha = src.alpha * sal, dst.rgb = original.rgb.
-        val output = Bitmap.createBitmap(cropW, cropH, Bitmap.Config.ARGB_8888)
+        val output = Bitmap.createBitmap(original.width, original.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
-        canvas.drawBitmap(croppedPhoto, 0f, 0f, null)
-        val paint = Paint().apply {
-            xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
-        }
-        canvas.drawBitmap(croppedSaliency, 0f, 0f, paint)
-
-        // Free the intermediate big bitmaps.
+        canvas.drawColor(BACKGROUND_FILL)
+        // Build the foreground in a temp layer so the saliency alpha
+        // multiply is contained — otherwise DST_IN would also clip the
+        // background fill we just drew.
+        val fg = Bitmap.createBitmap(original.width, original.height, Bitmap.Config.ARGB_8888)
+        val fgCanvas = Canvas(fg)
+        fgCanvas.drawBitmap(original, 0f, 0f, null)
+        fgCanvas.drawBitmap(
+            saliencyHiRes,
+            0f, 0f,
+            Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN) },
+        )
+        canvas.drawBitmap(fg, 0f, 0f, null)
+        fg.recycle()
         saliencyHiRes.recycle()
-        croppedPhoto.recycle()
-        croppedSaliency.recycle()
-
         return output
     }
 
     private companion object {
         private const val TAG = "TactileLensU2Net"
         private const val ASSET_NAME = "u2net_small.tflite"
+        // Matches DeepSpace from ui/theme/Color.kt — keeps the cropped
+        // bitmap visually consistent with the surrounding scanner card.
+        private const val BACKGROUND_FILL: Int = 0xFF07131D.toInt()
     }
 }
